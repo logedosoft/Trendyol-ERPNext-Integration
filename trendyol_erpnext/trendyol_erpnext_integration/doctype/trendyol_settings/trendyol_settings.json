@@ -1,0 +1,119 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TRENDYOL-{company}-{enabled}-{#####}",
+ "creation": "2026-06-15 15:02:39.300983",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "company",
+  "supplier_id",
+  "api_key",
+  "api_secret",
+  "service_url",
+  "btn_check_connection",
+  "column_break_pmap",
+  "default_customer",
+  "default_warehouse",
+  "tax_mapping"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "supplier_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "supplier_id",
+   "reqd": 1
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "api_key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "api_secret",
+   "fieldtype": "Password",
+   "label": "api_secret",
+   "reqd": 1
+  },
+  {
+   "description": "<b>Staging:</b> https://stageapi.trendyol.com/stagesapigw<br>\n<b>Production:</b> https://api.trendyol.com/sapigw",
+   "fieldname": "service_url",
+   "fieldtype": "Data",
+   "label": "service_url",
+   "reqd": 1
+  },
+  {
+   "fieldname": "default_customer",
+   "fieldtype": "Link",
+   "label": "default_customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "default_warehouse",
+   "fieldtype": "Link",
+   "label": "default_warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "tax_mapping",
+   "fieldtype": "Table",
+   "label": "tax_mapping",
+   "options": "Trendyol Tax Mapping"
+  },
+  {
+   "fieldname": "column_break_pmap",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "btn_check_connection",
+   "fieldtype": "Button",
+   "label": "Check Connection"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-17 16:25:10.887531",
+ "modified_by": "Administrator",
+ "module": "Trendyol ERPNext Integration",
+ "name": "Trendyol Settings",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
