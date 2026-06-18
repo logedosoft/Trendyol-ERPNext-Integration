@@ -3,6 +3,23 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 
+def _log_trendyol_call(docSettings, strMethod, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dStatusCode=None, strResponseBody=None):
+    if docSettings.enable_logging:
+        strTitle = f"Trendyol API — {strMethod} {dStatusCode or 'ERR'} {strUrl}"
+        lstParts = [
+            f"Method: {strMethod}",
+            f"URL: {strUrl}",
+            f"API Key: {strApiKey}",
+            f"API Secret: {strApiSecret}",
+            f"Headers: {dctHeaders}",
+            f"Params: {dctParams}",
+            f"Status: {dStatusCode or 'Network error — request never completed'}",
+        ]
+        if strResponseBody:
+            lstParts.append(f"Response: {strResponseBody[:2000]}")
+        frappe.log_error(title=strTitle, message="\n".join(lstParts))
+
+
 @frappe.whitelist()
 def check_connection(docname):
     docSettings = frappe.get_doc("Trendyol Settings", docname)
@@ -30,8 +47,9 @@ def check_connection(docname):
             headers=dctHeaders,
             timeout=15,
         )
+        _log_trendyol_call(docSettings, "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dctResponse.status_code, dctResponse.text)
     except requests.exceptions.RequestException as ex:
-        frappe.log_error(title="Trendyol Check Connection — Network Error", message=str(ex))
+        _log_trendyol_call(docSettings, "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret)
         dctResponse = None
 
     if dctResponse is None:
@@ -61,10 +79,7 @@ def check_connection(docname):
             "op_message": "Rate limited by Trendyol (429) — too many requests, wait and retry.",
         })
     else:
-        frappe.log_error(
-            title="Trendyol Check Connection — Unexpected Response",
-            message=f"Status: {dctResponse.status_code}\nBody: {dctResponse.text[:2000]}",
-        )
+        _log_trendyol_call(docSettings, "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dctResponse.status_code, dctResponse.text)
         dctResult = frappe._dict({
             "op_result": False,
             "op_message": f"Unexpected response from Trendyol (status {dctResponse.status_code}). See Error Log.",
