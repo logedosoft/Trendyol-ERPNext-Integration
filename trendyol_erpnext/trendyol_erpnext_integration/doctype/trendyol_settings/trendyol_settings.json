@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "enabled",
+  "enable_logging",
   "company",
   "supplier_id",
   "api_key",
@@ -85,12 +86,18 @@
    "fieldname": "btn_check_connection",
    "fieldtype": "Button",
    "label": "Check Connection"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_logging",
+   "fieldtype": "Check",
+   "label": "Enable Logging"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-17 16:25:10.887531",
+ "modified": "2026-06-18 14:18:27.949273",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
