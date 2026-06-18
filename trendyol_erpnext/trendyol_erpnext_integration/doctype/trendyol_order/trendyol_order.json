@@ -10,7 +10,26 @@
   "shipment_package_id",
   "order_date",
   "status",
-  "trendyol_status"
+  "trendyol_status",
+  "gross_amount",
+  "total_price",
+  "customer_name",
+  "customer_email",
+  "column_break_etfg",
+  "sales_order",
+  "retry_count",
+  "error_type",
+  "error_message",
+  "currency",
+  "cargo_tracking_number",
+  "cargo_provider_name",
+  "processed_at",
+  "section_break_hezw",
+  "items",
+  "section_break_dpno",
+  "shipment_address",
+  "column_break_buha",
+  "invoice_address"
  ],
  "fields": [
   {
@@ -51,12 +70,106 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "trendyol_status"
+  },
+  {
+   "fieldname": "column_break_etfg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "gross_amount",
+   "fieldtype": "Currency",
+   "label": "gross_amount"
+  },
+  {
+   "fieldname": "total_price",
+   "fieldtype": "Currency",
+   "label": "total_price"
+  },
+  {
+   "fieldname": "customer_email",
+   "fieldtype": "Data",
+   "label": "customer_email"
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "label": "customer_name"
+  },
+  {
+   "fieldname": "cargo_tracking_number",
+   "fieldtype": "Data",
+   "label": "cargo_tracking_number"
+  },
+  {
+   "fieldname": "cargo_provider_name",
+   "fieldtype": "Data",
+   "label": "cargo_provider_name"
+  },
+  {
+   "fieldname": "section_break_dpno",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "shipment_address",
+   "fieldtype": "Code",
+   "label": "shipment_address"
+  },
+  {
+   "fieldname": "column_break_buha",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_address",
+   "fieldtype": "Code",
+   "label": "invoice_address"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "sales_order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "retry_count",
+   "fieldtype": "Int",
+   "label": "retry_count"
+  },
+  {
+   "fieldname": "error_type",
+   "fieldtype": "Data",
+   "label": "error_type"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Code",
+   "label": "error_message"
+  },
+  {
+   "fieldname": "processed_at",
+   "fieldtype": "Datetime",
+   "label": "processed_at"
+  },
+  {
+   "fieldname": "section_break_hezw",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Trendyol Order Line"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-18 14:36:09.232586",
+ "modified": "2026-06-19 02:12:10.727129",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Order",
