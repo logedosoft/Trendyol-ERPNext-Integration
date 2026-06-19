@@ -148,23 +148,12 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"trendyol_erpnext.tasks.all"
-# 	],
-# 	"daily": [
-# 		"trendyol_erpnext.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"trendyol_erpnext.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"trendyol_erpnext.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"trendyol_erpnext.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"cron": {
+		"*/5 * * * *": ["trendyol_erpnext.utils.poll_orders"],
+		"*/3 * * * *": ["trendyol_erpnext.utils.process_staged_orders"],
+	}
+}
 
 # Testing
 # -------
