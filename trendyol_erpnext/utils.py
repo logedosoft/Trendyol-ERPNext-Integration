@@ -1,11 +1,12 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import frappe
 import requests
 from requests.auth import HTTPBasicAuth
 
 MAX_POLL_PAGES = 10
+MAX_SYNC_PAGES = 100
 
 
 def _log_trendyol_call(docSettings, strMethod, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dStatusCode=None, strResponseBody=None):
@@ -146,14 +147,27 @@ def _fetch_company_orders(docSettings):
         except (ValueError, TypeError):
             dtLastFetch = None
 
+    dtSyncFrom = None
+    if docSettings.sync_from_date:
+        try:
+            dtSyncFrom = datetime.combine(docSettings.sync_from_date, datetime.min.time())
+        except (ValueError, TypeError):
+            dtSyncFrom = None
+
+    dtCutoff = dtLastFetch
+    if dtSyncFrom is not None and (dtCutoff is None or dtSyncFrom > dtCutoff):
+        dtCutoff = dtSyncFrom
+
     dPage = 0
     dTotalPages = 1
     dFetched = 0
     dFailed = 0
     blnStopped = False
     blnError = False
+    dtLatestMod = None
 
-    while dPage < dTotalPages and dPage < MAX_POLL_PAGES:
+    dMaxPages = MAX_SYNC_PAGES if dtSyncFrom else MAX_POLL_PAGES
+    while dPage < dTotalPages and dPage < dMaxPages:
         dctParams["page"] = dPage
 
         dctResponse = _fetch_trendyol_page(
@@ -190,20 +204,22 @@ def _fetch_company_orders(docSettings):
             if strLastModMs:
                 try:
                     dtMod = datetime.fromtimestamp(int(strLastModMs) / 1000)
-                    if dtLastFetch is None or dtMod > dtLastFetch:
+                    if dtCutoff is None or dtMod > dtCutoff:
                         blnAllOld = False
+                    if dtLatestMod is None or dtMod > dtLatestMod:
+                        dtLatestMod = dtMod
                 except (ValueError, TypeError, OSError):
                     blnAllOld = False
 
-        if blnAllOld and dtLastFetch is not None:
+        if blnAllOld and dtCutoff is not None:
             blnStopped = True
             break
 
         dPage += 1
 
-    if not blnStopped and not blnError:
+    if not blnStopped and not blnError and dtLatestMod is not None:
         try:
-            docSettings.db_set("last_order_fetch", datetime.now().isoformat(timespec="seconds"))
+            docSettings.db_set("last_order_fetch", dtLatestMod.isoformat())
         except Exception:
             frappe.log_error(
                 "Trendyol poll_orders — failed to update last_order_fetch",
@@ -324,32 +340,301 @@ def process_staged_orders(limit=50):
     dProcessed = 0
     dFailed = 0
 
-    blnSettingsAvailable = True
-    try:
-        docSettings = frappe.get_single("Trendyol Settings")
-    except frappe.DoesNotExistError:
-        blnSettingsAvailable = False
-        docSettings = None
+    dctSettingsByCompany = {}
+    for strSettingsName in frappe.get_all("Trendyol Settings", filters={"enabled": 1}, pluck="name"):
+        docS = frappe.get_doc("Trendyol Settings", strSettingsName)
+        dctSettingsByCompany[docS.company] = docS
 
-    if blnSettingsAvailable:
+    if not dctSettingsByCompany:
+        dctResult = frappe._dict({
+            "op_result": False,
+            "op_message": "No enabled Trendyol Settings found.",
+            "processed": 0,
+            "failed": 0,
+        })
+    else:
         for strOrderName in lstOrders:
             docOrder = frappe.get_doc("Trendyol Order", strOrderName)
-            try:
-                _process_single_order(docOrder, docSettings)
-                dProcessed += 1
-            except Exception:
+            docSettings = dctSettingsByCompany.get(docOrder.company)
+            if not docSettings:
                 frappe.log_error(
-                    "Trendyol process_staged_orders — single order failed",
-                    frappe.get_traceback(),
+                    "Trendyol process_staged_orders — no settings for company",
+                    f"Order {strOrderName} company={docOrder.company}",
                 )
                 dFailed += 1
+            else:
+                try:
+                    _process_single_order(docOrder, docSettings)
+                    dProcessed += 1
+                except Exception:
+                    frappe.log_error(
+                        "Trendyol process_staged_orders — single order failed",
+                        frappe.get_traceback(),
+                    )
+                    dFailed += 1
 
-    return frappe._dict({
-        "op_result": blnSettingsAvailable,
-        "op_message": "" if blnSettingsAvailable else "Trendyol Settings not configured.",
-        "processed": dProcessed,
-        "failed": dFailed,
+        dctResult = frappe._dict({
+            "op_result": True,
+            "op_message": f"Processed {dProcessed}, failed {dFailed} of {len(lstOrders)} orders.",
+            "processed": dProcessed,
+            "failed": dFailed,
+        })
+
+    return dctResult
+
+
+def _ensure_item(dctItem, docSettings, dctProductCodeMap):
+    """Resolve an ERPNext Item for a Trendyol order line using the configured matching mode.
+
+    dctProductCodeMap maps barcode → productCode from the stored payload.
+    """
+    strMatchMode = docSettings.item_matching or "Use Product Code"
+    strItemCode = None
+
+    if strMatchMode == "Use Item Map Table":
+        strItemCode = _resolve_item_via_map(dctItem, docSettings, dctProductCodeMap)
+    elif strMatchMode == "Match by Barcode":
+        strItemCode = _resolve_item_via_barcode(dctItem)
+    else:
+        strItemCode = _resolve_item_via_product_code(dctItem, dctProductCodeMap)
+
+    if not strItemCode:
+        frappe.throw(
+            f"Item matching failed for '{dctItem.product_name}' "
+            f"(barcode={dctItem.barcode}, mode={strMatchMode}). "
+            f"Configure Item Matching in Trendyol Settings."
+        )
+
+    return strItemCode
+
+
+def _resolve_item_via_product_code(dctItem, dctProductCodeMap):
+    """Match by productCode: search Item by item_code, create if not found."""
+    strProductCode = dctProductCodeMap.get(dctItem.barcode or dctItem.sku, "")
+    if strProductCode:
+        if frappe.db.exists("Item", strProductCode):
+            strItemCode = strProductCode
+        else:
+            strBarcodeFallback = _resolve_item_via_barcode(dctItem)
+            if strBarcodeFallback:
+                strItemCode = strBarcodeFallback
+            else:
+                lstBarcodes = []
+                if dctItem.barcode and not frappe.db.exists("Item Barcode", {"barcode": dctItem.barcode}):
+                    lstBarcodes = [{"barcode": dctItem.barcode}]
+                docItem = frappe.get_doc({
+                    "doctype": "Item",
+                    "item_code": strProductCode,
+                    "item_name": dctItem.product_name,
+                    "stock_uom": "Piece",
+                    "is_stock_item": 1,
+                    "item_group": "KİŞİSEL HİJYEN ÜRÜNLERİ",
+                    "barcodes": lstBarcodes,
+                })
+                docItem.insert(ignore_permissions=True, ignore_mandatory=True)
+                strItemCode = strProductCode
+    else:
+        strItemCode = None
+    return strItemCode
+
+
+def _resolve_item_via_barcode(dctItem):
+    """Match by barcode: search Item Barcode table, prefer enabled items."""
+    strBarcode = dctItem.barcode or dctItem.sku
+    lstCandidates = []
+    if strBarcode:
+        lstCandidates = frappe.get_all(
+            "Item Barcode",
+            filters={"barcode": strBarcode},
+            fields=["parent"],
+            pluck="parent",
+        )
+
+    strItemCode = None
+    if lstCandidates:
+        strItemCode = lstCandidates[0]
+        for strCandidate in lstCandidates:
+            blnDisabled = frappe.db.get_value("Item", strCandidate, "disabled")
+            if not blnDisabled:
+                strItemCode = strCandidate
+                break
+
+    return strItemCode
+
+
+def _resolve_item_via_map(dctItem, docSettings, dctProductCodeMap):
+    """Match via Trendyol Item Map child table: productCode → Item Code."""
+    strBarcode = dctItem.barcode or dctItem.sku
+    strProductCode = dctProductCodeMap.get(strBarcode, "")
+    strItemCode = None
+    if strProductCode and docSettings.item_mapping:
+        for dctRow in docSettings.item_mapping:
+            if dctRow.code == strProductCode:
+                strItemCode = dctRow.item_code
+                break
+    return strItemCode
+
+
+def _build_product_code_map(docOrder):
+    """Build a barcode→productCode map from the stored payload for an order."""
+    dctMap = {}
+    strPayloadName = frappe.db.get_value(
+        "Trendyol Order Payload",
+        {"trendyol_order": docOrder.name},
+        "name",
+    )
+    if strPayloadName:
+        docPayload = frappe.get_doc("Trendyol Order Payload", strPayloadName)
+        dctPayload = docPayload.payload
+        if isinstance(dctPayload, str):
+            try:
+                dctPayload = json.loads(dctPayload)
+            except (json.JSONDecodeError, TypeError):
+                dctPayload = {}
+
+        if dctPayload:
+            for dctLine in dctPayload.get("lines", []):
+                strBarcode = dctLine.get("barcode", "")
+                strProductCode = frappe.utils.cstr(dctLine.get("productCode", ""))
+                if strBarcode and strProductCode:
+                    dctMap[strBarcode] = strProductCode
+
+    return dctMap
+
+
+def _extract_customer_id(docOrder):
+    """Extract Trendyol customerId from the stored payload for an order."""
+    strCustId = ""
+    strPayloadName = frappe.db.get_value(
+        "Trendyol Order Payload",
+        {"trendyol_order": docOrder.name},
+        "name",
+    )
+    if strPayloadName:
+        docPayload = frappe.get_doc("Trendyol Order Payload", strPayloadName)
+        dctPayload = docPayload.payload
+        if isinstance(dctPayload, str):
+            try:
+                dctPayload = json.loads(dctPayload)
+            except (json.JSONDecodeError, TypeError):
+                dctPayload = {}
+        if dctPayload:
+            strCustId = frappe.utils.cstr(dctPayload.get("customerId", ""))
+    return strCustId
+
+
+def _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCustId):
+    """Create or update a Shipping Address from the Trendyol shipment data.
+
+    Address name = "{firstName} {lastName} {trendyolCustomerId}".
+    If address already exists and fields changed, update it.
+    If not found, create it.
+    """
+    dctAddrData = _parse_shipment_address(docOrder)
+    strFirstName = dctAddrData.get("firstName", "")
+    strLastName = dctAddrData.get("lastName", "")
+
+    if strFirstName or strLastName:
+        strAddressName = f"{strFirstName} {strLastName} {strTrendyolCustId}".strip()
+        blnExists = frappe.db.exists("Address", strAddressName)
+        if blnExists:
+            _update_address_if_changed(strAddressName, dctAddrData, strCustomer)
+        else:
+            _create_shipping_address(strAddressName, dctAddrData, strCustomer)
+        strResult = strAddressName
+    else:
+        strResult = _fallback_shipping_address(strCustomer)
+
+    return strResult
+
+
+def _parse_shipment_address(docOrder):
+    """Parse the shipment_address JSON from a Trendyol Order, returning a dict."""
+    dctResult = {}
+    if docOrder.shipment_address:
+        strRaw = docOrder.shipment_address
+        if isinstance(strRaw, dict):
+            dctResult = strRaw
+        else:
+            try:
+                dctResult = json.loads(strRaw)
+            except (json.JSONDecodeError, TypeError):
+                dctResult = {}
+    return dctResult
+
+
+def _create_shipping_address(strAddressName, dctAddrData, strCustomer):
+    """Create a new Shipping Address and link it to the customer."""
+    docAddress = frappe.get_doc({
+        "doctype": "Address",
+        "address_type": "Shipping",
+        "address_line1": dctAddrData.get("address1", ""),
+        "address_line2": dctAddrData.get("address2", ""),
+        "city": dctAddrData.get("city", ""),
+        "county": dctAddrData.get("district", ""),
+        "state": dctAddrData.get("stateName", ""),
+        "pincode": dctAddrData.get("postalCode", ""),
+        "country": _resolve_country(dctAddrData.get("countryCode", "TR")),
+        "phone": dctAddrData.get("phone"),
+        "links": [{"link_doctype": "Customer", "link_name": strCustomer}],
     })
+    docAddress.insert(ignore_permissions=True)
+    frappe.rename_doc("Address", docAddress.name, strAddressName, force=True)
+
+
+def _update_address_if_changed(strAddressName, dctAddrData, strCustomer):
+    """Update an existing Address if any field changed, and ensure the customer link exists."""
+    docAddress = frappe.get_doc("Address", strAddressName)
+
+    dctFieldMap = {
+        "address_line1": dctAddrData.get("address1", ""),
+        "address_line2": dctAddrData.get("address2", ""),
+        "city": dctAddrData.get("city", ""),
+        "county": dctAddrData.get("district", ""),
+        "state": dctAddrData.get("stateName", ""),
+        "pincode": dctAddrData.get("postalCode", ""),
+        "country": _resolve_country(dctAddrData.get("countryCode", "TR")),
+        "phone": dctAddrData.get("phone"),
+    }
+
+    blnChanged = False
+    for strField, strNewVal in dctFieldMap.items():
+        strCurrentVal = docAddress.get(strField) or ""
+        if str(strCurrentVal).strip() != str(strNewVal).strip():
+            docAddress.set(strField, strNewVal)
+            blnChanged = True
+
+    blnLinked = any(
+        d.link_doctype == "Customer" and d.link_name == strCustomer
+        for d in docAddress.links
+    )
+    if not blnLinked:
+        docAddress.append("links", {"link_doctype": "Customer", "link_name": strCustomer})
+        blnChanged = True
+
+    if blnChanged:
+        docAddress.save(ignore_permissions=True)
+
+
+def _resolve_country(strCountryCode):
+    """Resolve a 2-letter country code to the full Country name used in ERPNext."""
+    strFullName = ""
+    if strCountryCode:
+        strFullName = frappe.db.get_value("Country", {"code": strCountryCode.lower()}, "name")
+    if not strFullName:
+        strFullName = "Turkey"
+    return strFullName
+
+
+def _fallback_shipping_address(strCustomer):
+    """Return the first Shipping Address linked to the customer, or empty string."""
+    lstExisting = frappe.get_list(
+        "Address",
+        filters={"link_name": strCustomer, "address_type": "Shipping"},
+        limit=1,
+        pluck="name",
+    )
+    return lstExisting[0] if lstExisting else ""
 
 
 def _process_single_order(docOrder, docSettings):
@@ -359,19 +644,34 @@ def _process_single_order(docOrder, docSettings):
 
     try:
         strCustomer = docSettings.default_customer or "Guest"
+        dctProductCodeMap = _build_product_code_map(docOrder)
+        strTrendyolCustId = _extract_customer_id(docOrder)
 
         docSO = frappe.new_doc("Sales Order")
         docSO.customer = strCustomer
         docSO.company = docSettings.company
-        docSO.transaction_date = docOrder.order_date or datetime.now().date()
+        dtOrderDate = docOrder.order_date or datetime.now().date()
+        docSO.transaction_date = dtOrderDate
+        docSO.delivery_date = dtOrderDate + timedelta(days=3)
+        docSO.order_type = "Sales"
+        docSO.currency = "TRY"
+        docSO.selling_price_list = "Standart Satış"
+        docSO.shipping_address_name = _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCustId)
+        if docSettings.default_territory:
+            docSO.territory = docSettings.default_territory
+        strSalesPerson = docSettings.default_sales_person or "Satış Ekibi"
+        docSO.append("sales_team", {"sales_person": strSalesPerson, "allocated_percentage": 100})
 
         for dctItem in docOrder.items:
+            strItemCode = _ensure_item(dctItem, docSettings, dctProductCodeMap)
             docSO.append("items", {
+                "item_code": strItemCode,
                 "item_name": dctItem.product_name,
                 "qty": dctItem.quantity,
                 "rate": dctItem.price,
                 "amount": dctItem.amount,
                 "warehouse": docSettings.default_warehouse,
+                "delivery_date": docSO.delivery_date,
             })
 
         if docSettings.tax_mapping:

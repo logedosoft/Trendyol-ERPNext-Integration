@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "format:T-{order_number}-{##}",
  "creation": "2026-06-18 14:33:40.774586",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -36,7 +37,7 @@
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "company",
+   "label": "Company",
    "options": "Company",
    "reqd": 1
   },
@@ -44,32 +45,32 @@
    "fieldname": "order_number",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "order_number",
+   "label": "Order Number",
    "reqd": 1
   },
   {
    "fieldname": "shipment_package_id",
    "fieldtype": "Data",
-   "label": "shipment_package_id"
+   "label": "Shipment Package ID"
   },
   {
    "fieldname": "order_date",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "order_date"
+   "label": "Order Date"
   },
   {
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "status",
+   "label": "Status",
    "options": "New\nProcessing\nCompleted\nFailed\nSkipped"
   },
   {
    "fieldname": "trendyol_status",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "trendyol_status"
+   "label": "Trendyol Status"
   },
   {
    "fieldname": "column_break_etfg",
@@ -84,12 +85,12 @@
   {
    "fieldname": "gross_amount",
    "fieldtype": "Currency",
-   "label": "gross_amount"
+   "label": "Gross Amount"
   },
   {
    "fieldname": "total_price",
    "fieldtype": "Currency",
-   "label": "total_price"
+   "label": "Total Price"
   },
   {
    "fieldname": "customer_email",
@@ -99,7 +100,7 @@
   {
    "fieldname": "customer_name",
    "fieldtype": "Data",
-   "label": "customer_name"
+   "label": "Customer Name"
   },
   {
    "fieldname": "cargo_tracking_number",
@@ -169,10 +170,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-19 02:12:10.727129",
+ "modified": "2026-06-19 06:13:45.455544",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Order",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {

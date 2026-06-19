@@ -15,10 +15,16 @@
   "service_url",
   "btn_check_connection",
   "column_break_pmap",
+  "sync_from_date",
   "default_customer",
   "default_warehouse",
+  "default_territory",
+  "default_sales_person",
   "tax_mapping",
-  "last_order_fetch"
+  "last_order_fetch",
+  "item_map_tab",
+  "item_matching",
+  "item_mapping"
  ],
  "fields": [
   {
@@ -98,12 +104,46 @@
    "fieldname": "last_order_fetch",
    "fieldtype": "Data",
    "label": "Last Order Fetch"
+  },
+  {
+   "fieldname": "item_map_tab",
+   "fieldtype": "Tab Break",
+   "label": "Item Map"
+  },
+  {
+   "fieldname": "item_matching",
+   "fieldtype": "Select",
+   "label": "Item Matching",
+   "options": "Use Product Code\nMatch by Barcode\nUse Item Mapping by Product Code\nUse Item Mapping by Barcode"
+  },
+  {
+   "fieldname": "item_mapping",
+   "fieldtype": "Table",
+   "label": "item mapping",
+   "options": "Trendyol Item Map"
+  },
+  {
+   "fieldname": "default_territory",
+   "fieldtype": "Link",
+   "label": "Default Territory",
+   "options": "Territory"
+  },
+  {
+   "fieldname": "default_sales_person",
+   "fieldtype": "Link",
+   "label": "Default Sales Person",
+   "options": "Sales Person"
+  },
+  {
+   "fieldname": "sync_from_date",
+   "fieldtype": "Date",
+   "label": "Sync From Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-19 03:00:32.192383",
+ "modified": "2026-06-19 06:21:06.108605",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
