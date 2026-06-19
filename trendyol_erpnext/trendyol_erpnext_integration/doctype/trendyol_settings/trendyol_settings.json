@@ -17,14 +17,15 @@
   "column_break_pmap",
   "default_customer",
   "default_warehouse",
-  "tax_mapping"
+  "tax_mapping",
+  "last_order_fetch"
  ],
  "fields": [
   {
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "company",
+   "label": "Company",
    "options": "Company",
    "reqd": 1
   },
@@ -32,38 +33,38 @@
    "fieldname": "supplier_id",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "supplier_id",
+   "label": "Supplier ID",
    "reqd": 1
   },
   {
    "fieldname": "api_key",
    "fieldtype": "Password",
-   "label": "api_key",
+   "label": "API Key",
    "reqd": 1
   },
   {
    "fieldname": "api_secret",
    "fieldtype": "Password",
-   "label": "api_secret",
+   "label": "API Secret",
    "reqd": 1
   },
   {
    "description": "<b>Staging:</b> https://stageapi.trendyol.com/stagesapigw<br>\n<b>Production:</b> https://api.trendyol.com/sapigw",
    "fieldname": "service_url",
    "fieldtype": "Data",
-   "label": "service_url",
+   "label": "Service URL",
    "reqd": 1
   },
   {
    "fieldname": "default_customer",
    "fieldtype": "Link",
-   "label": "default_customer",
+   "label": "Default Customer",
    "options": "Customer"
   },
   {
    "fieldname": "default_warehouse",
    "fieldtype": "Link",
-   "label": "default_warehouse",
+   "label": "Default Warehouse",
    "options": "Warehouse"
   },
   {
@@ -75,7 +76,7 @@
   {
    "fieldname": "tax_mapping",
    "fieldtype": "Table",
-   "label": "tax_mapping",
+   "label": "Tax Mapping",
    "options": "Trendyol Tax Mapping"
   },
   {
@@ -92,12 +93,17 @@
    "fieldname": "enable_logging",
    "fieldtype": "Check",
    "label": "Enable Logging"
+  },
+  {
+   "fieldname": "last_order_fetch",
+   "fieldtype": "Data",
+   "label": "Last Order Fetch"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-18 14:18:27.949273",
+ "modified": "2026-06-19 03:00:32.192383",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
