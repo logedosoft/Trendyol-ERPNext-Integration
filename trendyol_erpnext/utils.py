@@ -17,7 +17,7 @@ def _log_trendyol_call(docSettings, strMethod, strUrl, dctHeaders, dctParams, st
             f"Method: {strMethod}",
             f"URL: {strUrl}",
             f"API Key: {strApiKey}",
-            f"API Secret: {strApiSecret}",
+            f"API Secret: {'*' * 8}",
             f"Headers: {dctHeaders}",
             f"Params: {dctParams}",
             f"Status: {dStatusCode or 'Network error — request never completed'}",
@@ -324,63 +324,80 @@ def _upsert_payload(docOrder, dctOrderContent):
 
 
 @frappe.whitelist()
-def process_staged_orders(limit=50):
-    """Pick up New or Failed staged orders and create Sales Orders from them."""
-    lstOrders = frappe.get_all(
-        "Trendyol Order",
-        filters={
-            "status": ["in", ("New", "Failed")],
-            "retry_count": ["<", 3],
-        },
-        order_by="creation asc",
-        limit=int(limit),
-        pluck="name",
-    )
+def process_staged_orders(limit=20):
+	"""Enqueue staged Trendyol orders for background processing."""
+	dLimit = 20 if limit is None else int(limit)
+	if dLimit <= 0:
+		lstOrders = []
+	else:
+		lstOrders = frappe.get_all(
+			"Trendyol Order",
+			filters={
+				"status": ["in", ("New", "Failed")],
+				"retry_count": ["<", 3],
+			},
+			order_by="creation asc",
+			limit=min(dLimit, 20),
+			pluck="name",
+		)
 
-    dProcessed = 0
-    dFailed = 0
+	dctSettingsByCompany = {}
+	for strSettingsName in frappe.get_all("Trendyol Settings", filters={"enabled": 1}, pluck="name"):
+		docS = frappe.get_doc("Trendyol Settings", strSettingsName)
+		dctSettingsByCompany[docS.company] = docS
 
-    dctSettingsByCompany = {}
-    for strSettingsName in frappe.get_all("Trendyol Settings", filters={"enabled": 1}, pluck="name"):
-        docS = frappe.get_doc("Trendyol Settings", strSettingsName)
-        dctSettingsByCompany[docS.company] = docS
+	dEnqueued = 0
+	dSkipped = 0
 
-    if not dctSettingsByCompany:
-        dctResult = frappe._dict({
-            "op_result": False,
-            "op_message": "No enabled Trendyol Settings found.",
-            "processed": 0,
-            "failed": 0,
-        })
-    else:
-        for strOrderName in lstOrders:
-            docOrder = frappe.get_doc("Trendyol Order", strOrderName)
-            docSettings = dctSettingsByCompany.get(docOrder.company)
-            if not docSettings:
-                frappe.log_error(
-                    "Trendyol process_staged_orders — no settings for company",
-                    f"Order {strOrderName} company={docOrder.company}",
-                )
-                dFailed += 1
-            else:
-                try:
-                    _process_single_order(docOrder, docSettings)
-                    dProcessed += 1
-                except Exception:
-                    frappe.log_error(
-                        "Trendyol process_staged_orders — single order failed",
-                        frappe.get_traceback(),
-                    )
-                    dFailed += 1
+	for strOrderName in lstOrders:
+		docOrder = frappe.get_doc("Trendyol Order", strOrderName)
+		docSettings = dctSettingsByCompany.get(docOrder.company)
+		if not docSettings:
+			frappe.log_error(
+				"Trendyol process_staged_orders — no settings for company",
+				f"Order {strOrderName} company={docOrder.company}",
+			)
+			dSkipped += 1
+			continue
 
-        dctResult = frappe._dict({
-            "op_result": True,
-            "op_message": f"Processed {dProcessed}, failed {dFailed} of {len(lstOrders)} orders.",
-            "processed": dProcessed,
-            "failed": dFailed,
-        })
+		try:
+			frappe.enqueue(
+				"trendyol_erpnext.utils._process_single_order_job",
+				queue="long",
+				timeout=600,
+				order_name=strOrderName,
+				settings_name=docSettings.name,
+				job_id=f"trendyol_process_{strOrderName}",
+			)
+			dEnqueued += 1
+		except Exception:
+			frappe.log_error(
+				"Trendyol process_staged_orders — enqueue failed",
+				frappe.get_traceback(),
+			)
+			dSkipped += 1
 
-    return dctResult
+	dctResult = frappe._dict({
+		"op_result": True,
+		"op_message": f"Enqueued {dEnqueued}, skipped {dSkipped} of {len(lstOrders)} orders.",
+		"enqueued": dEnqueued,
+		"skipped": dSkipped,
+		"total": len(lstOrders),
+	})
+	return dctResult
+
+
+def _process_single_order_job(order_name, settings_name):
+	"""Process one staged Trendyol order in a background job."""
+	try:
+		docOrder = frappe.get_doc("Trendyol Order", order_name)
+		docSettings = frappe.get_doc("Trendyol Settings", settings_name)
+		_process_single_order(docOrder, docSettings)
+	except Exception:
+		frappe.log_error(
+			f"Trendyol process job failed for {order_name}",
+			frappe.get_traceback(),
+		)
 
 
 def _ensure_item(dctItem, docSettings, dctProductCodeMap):
@@ -396,19 +413,27 @@ def _ensure_item(dctItem, docSettings, dctProductCodeMap):
     elif strMatchMode == "Match by Barcode":
         strItemCode = _resolve_item_via_barcode(dctItem)
     else:
-        strItemCode = _resolve_item_via_product_code(dctItem, dctProductCodeMap)
+        strItemCode = _resolve_item_via_product_code(dctItem, docSettings, dctProductCodeMap)
 
     if not strItemCode:
-        frappe.throw(
-            f"Item matching failed for '{dctItem.product_name}' "
-            f"(barcode={dctItem.barcode}, mode={strMatchMode}). "
-            f"Configure Item Matching in Trendyol Settings."
-        )
+        if strMatchMode == "Match by Barcode":
+            frappe.throw(
+                f"No ERPNext Item found with barcode '{dctItem.barcode}' "
+                f"for '{dctItem.product_name}'. "
+                f"Add this barcode to an existing Item's Barcode table, "
+                f"or create a new Item with this barcode."
+            )
+        else:
+            frappe.throw(
+                f"Item matching failed for '{dctItem.product_name}' "
+                f"(barcode={dctItem.barcode}, mode={strMatchMode}). "
+                f"Check Trendyol Settings configuration."
+            )
 
     return strItemCode
 
 
-def _resolve_item_via_product_code(dctItem, dctProductCodeMap):
+def _resolve_item_via_product_code(dctItem, docSettings, dctProductCodeMap):
     """Match by productCode: search Item by item_code, create if not found."""
     strProductCode = dctProductCodeMap.get(dctItem.barcode or dctItem.sku, "")
     if strProductCode:
@@ -428,7 +453,7 @@ def _resolve_item_via_product_code(dctItem, dctProductCodeMap):
                     "item_name": dctItem.product_name,
                     "stock_uom": "Piece",
                     "is_stock_item": 1,
-                    "item_group": "KİŞİSEL HİJYEN ÜRÜNLERİ",
+                    "item_group": docSettings.default_item_group,
                     "barcodes": lstBarcodes,
                 })
                 docItem.insert(ignore_permissions=True, ignore_mandatory=True)

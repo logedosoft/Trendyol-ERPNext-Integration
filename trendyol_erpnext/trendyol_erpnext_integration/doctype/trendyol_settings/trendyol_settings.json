@@ -24,7 +24,8 @@
   "last_order_fetch",
   "item_map_tab",
   "item_matching",
-  "item_mapping"
+  "item_mapping",
+  "default_item_group"
  ],
  "fields": [
   {
@@ -138,12 +139,18 @@
    "fieldname": "sync_from_date",
    "fieldtype": "Date",
    "label": "Sync From Date"
+  },
+  {
+   "fieldname": "default_item_group",
+   "fieldtype": "Link",
+   "label": "Default Item Group",
+   "options": "Item Group"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-19 06:21:06.108605",
+ "modified": "2026-06-19 06:29:50.552162",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
