@@ -1,0 +1,198 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:T-{order_number}-{##}",
+ "creation": "2026-06-18 14:33:40.774586",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "order_number",
+  "shipment_package_id",
+  "order_date",
+  "status",
+  "trendyol_status",
+  "gross_amount",
+  "total_price",
+  "customer_name",
+  "customer_email",
+  "column_break_etfg",
+  "sales_order",
+  "retry_count",
+  "error_type",
+  "error_message",
+  "currency",
+  "cargo_tracking_number",
+  "cargo_provider_name",
+  "processed_at",
+  "section_break_hezw",
+  "items",
+  "section_break_dpno",
+  "shipment_address",
+  "column_break_buha",
+  "invoice_address"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "order_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Order Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shipment_package_id",
+   "fieldtype": "Data",
+   "label": "Shipment Package ID"
+  },
+  {
+   "fieldname": "order_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Order Date"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "New\nProcessing\nCompleted\nFailed\nSkipped"
+  },
+  {
+   "fieldname": "trendyol_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Trendyol Status"
+  },
+  {
+   "fieldname": "column_break_etfg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "gross_amount",
+   "fieldtype": "Currency",
+   "label": "Gross Amount"
+  },
+  {
+   "fieldname": "total_price",
+   "fieldtype": "Currency",
+   "label": "Total Price"
+  },
+  {
+   "fieldname": "customer_email",
+   "fieldtype": "Data",
+   "label": "customer_email"
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "label": "Customer Name"
+  },
+  {
+   "fieldname": "cargo_tracking_number",
+   "fieldtype": "Data",
+   "label": "cargo_tracking_number"
+  },
+  {
+   "fieldname": "cargo_provider_name",
+   "fieldtype": "Data",
+   "label": "cargo_provider_name"
+  },
+  {
+   "fieldname": "section_break_dpno",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "shipment_address",
+   "fieldtype": "Code",
+   "label": "shipment_address"
+  },
+  {
+   "fieldname": "column_break_buha",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_address",
+   "fieldtype": "Code",
+   "label": "invoice_address"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "sales_order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "retry_count",
+   "fieldtype": "Int",
+   "label": "retry_count"
+  },
+  {
+   "fieldname": "error_type",
+   "fieldtype": "Data",
+   "label": "error_type"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Code",
+   "label": "error_message"
+  },
+  {
+   "fieldname": "processed_at",
+   "fieldtype": "Datetime",
+   "label": "processed_at"
+  },
+  {
+   "fieldname": "section_break_hezw",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Trendyol Order Line"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-19 06:13:45.455544",
+ "modified_by": "Administrator",
+ "module": "Trendyol ERPNext Integration",
+ "name": "Trendyol Order",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "enabled",
+  "enable_logging",
   "company",
   "supplier_id",
   "api_key",
@@ -14,16 +15,24 @@
   "service_url",
   "btn_check_connection",
   "column_break_pmap",
+  "sync_from_date",
   "default_customer",
   "default_warehouse",
-  "tax_mapping"
+  "default_territory",
+  "default_sales_person",
+  "tax_mapping",
+  "last_order_fetch",
+  "item_map_tab",
+  "item_matching",
+  "item_mapping",
+  "default_item_group"
  ],
  "fields": [
   {
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "company",
+   "label": "Company",
    "options": "Company",
    "reqd": 1
   },
@@ -31,38 +40,38 @@
    "fieldname": "supplier_id",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "supplier_id",
+   "label": "Supplier ID",
    "reqd": 1
   },
   {
    "fieldname": "api_key",
    "fieldtype": "Password",
-   "label": "api_key",
+   "label": "API Key",
    "reqd": 1
   },
   {
    "fieldname": "api_secret",
    "fieldtype": "Password",
-   "label": "api_secret",
+   "label": "API Secret",
    "reqd": 1
   },
   {
    "description": "<b>Staging:</b> https://stageapi.trendyol.com/stagesapigw<br>\n<b>Production:</b> https://api.trendyol.com/sapigw",
    "fieldname": "service_url",
    "fieldtype": "Data",
-   "label": "service_url",
+   "label": "Service URL",
    "reqd": 1
   },
   {
    "fieldname": "default_customer",
    "fieldtype": "Link",
-   "label": "default_customer",
+   "label": "Default Customer",
    "options": "Customer"
   },
   {
    "fieldname": "default_warehouse",
    "fieldtype": "Link",
-   "label": "default_warehouse",
+   "label": "Default Warehouse",
    "options": "Warehouse"
   },
   {
@@ -74,7 +83,7 @@
   {
    "fieldname": "tax_mapping",
    "fieldtype": "Table",
-   "label": "tax_mapping",
+   "label": "Tax Mapping",
    "options": "Trendyol Tax Mapping"
   },
   {
@@ -85,12 +94,63 @@
    "fieldname": "btn_check_connection",
    "fieldtype": "Button",
    "label": "Check Connection"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_logging",
+   "fieldtype": "Check",
+   "label": "Enable Logging"
+  },
+  {
+   "fieldname": "last_order_fetch",
+   "fieldtype": "Data",
+   "label": "Last Order Fetch"
+  },
+  {
+   "fieldname": "item_map_tab",
+   "fieldtype": "Tab Break",
+   "label": "Item Map"
+  },
+  {
+   "fieldname": "item_matching",
+   "fieldtype": "Select",
+   "label": "Item Matching",
+   "options": "Use Product Code\nMatch by Barcode\nUse Item Mapping by Product Code\nUse Item Mapping by Barcode"
+  },
+  {
+   "fieldname": "item_mapping",
+   "fieldtype": "Table",
+   "label": "item mapping",
+   "options": "Trendyol Item Map"
+  },
+  {
+   "fieldname": "default_territory",
+   "fieldtype": "Link",
+   "label": "Default Territory",
+   "options": "Territory"
+  },
+  {
+   "fieldname": "default_sales_person",
+   "fieldtype": "Link",
+   "label": "Default Sales Person",
+   "options": "Sales Person"
+  },
+  {
+   "fieldname": "sync_from_date",
+   "fieldtype": "Date",
+   "label": "Sync From Date"
+  },
+  {
+   "fieldname": "default_item_group",
+   "fieldtype": "Link",
+   "label": "Default Item Group",
+   "options": "Item Group"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-17 16:25:10.887531",
+ "modified": "2026-06-19 06:29:50.552162",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
