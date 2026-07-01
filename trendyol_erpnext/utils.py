@@ -9,10 +9,10 @@ MAX_POLL_PAGES = 10
 MAX_SYNC_PAGES = 100
 
 
-def _log_trendyol_call(docSettings, strMethod, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dStatusCode=None, strResponseBody=None):
+def _log_trendyol_call(docSettings, strLogTitle, strMethod, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dStatusCode=None, strResponseBody=None):
     """Log a Trendyol API call to the Error Log when logging is enabled."""
     if docSettings.enable_logging:
-        strTitle = f"Trendyol API — {strMethod} {dStatusCode or 'ERR'} {strUrl}"
+        strTitle = strLogTitle
         lstParts = [
             f"Method: {strMethod}",
             f"URL: {strUrl}",
@@ -60,9 +60,9 @@ def check_connection(docname):
             headers=dctHeaders,
             timeout=15,
         )
-        _log_trendyol_call(docSettings, "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dctResponse.status_code, dctResponse.text)
+        _log_trendyol_call(docSettings, "Trendyol Check Connection", "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dctResponse.status_code, dctResponse.text)
     except requests.exceptions.RequestException as ex:
-        _log_trendyol_call(docSettings, "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret)
+        _log_trendyol_call(docSettings, "Trendyol Check Connection", "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret)
         dctResponse = None
 
     if dctResponse is None:
@@ -92,7 +92,7 @@ def check_connection(docname):
             "op_message": "Rate limited by Trendyol (429) — too many requests, wait and retry.",
         })
     else:
-        _log_trendyol_call(docSettings, "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dctResponse.status_code, dctResponse.text)
+        _log_trendyol_call(docSettings, "Trendyol Check Connection", "GET", strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dctResponse.status_code, dctResponse.text)
         dctResult = frappe._dict({
             "op_result": False,
             "op_message": f"Unexpected response from Trendyol (status {dctResponse.status_code}). See Error Log.",
@@ -241,13 +241,13 @@ def _fetch_trendyol_page(docSettings, strUrl, dctHeaders, dctParams, strApiKey, 
             timeout=30,
         )
         _log_trendyol_call(
-            docSettings, "GET", strUrl, dctHeaders, dctParams,
+            docSettings, "Trendyol Get Orders", "GET", strUrl, dctHeaders, dctParams,
             strApiKey, strApiSecret,
             dctResponse.status_code, dctResponse.text,
         )
     except requests.exceptions.RequestException:
         _log_trendyol_call(
-            docSettings, "GET", strUrl, dctHeaders, dctParams,
+            docSettings, "Trendyol Get Orders", "GET", strUrl, dctHeaders, dctParams,
             strApiKey, strApiSecret,
         )
         dctResponse = None
