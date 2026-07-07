@@ -37,6 +37,7 @@
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Company",
    "options": "Company",
    "reqd": 1
@@ -45,6 +46,7 @@
    "fieldname": "order_number",
    "fieldtype": "Data",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Order Number",
    "reqd": 1
   },
@@ -133,6 +135,8 @@
   {
    "fieldname": "sales_order",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "sales_order",
    "options": "Sales Order"
   },
@@ -170,7 +174,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-06 14:07:08.371453",
+ "modified": "2026-07-07 13:32:26.066626",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Order",
