@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import frappe
+from frappe.utils import flt
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -150,7 +151,7 @@ def _run_poll_orders():
         docSettings = frappe.get_doc("Trendyol Settings", strSettingsName)
         try:
             _fetch_company_orders(docSettings)
-        except Exception:
+        except Exception as ex:
             frappe.log_error(
                 "Trendyol poll_orders — company failed",
                 frappe.get_traceback(),
@@ -289,7 +290,7 @@ def _fetch_date_window(docSettings, dtStart, dtEnd):
                 docOrder = _upsert_order(dctOrderContent, strCompany)
                 _upsert_payload(docOrder, dctOrderContent)
                 dFetched += 1
-            except Exception:
+            except Exception as ex:
                 frappe.log_error(
                     "Trendyol poll_orders — order upsert failed",
                     frappe.get_traceback(),
@@ -501,10 +502,33 @@ def create_sales_order_from_trendyol_order(strOrderName):
 	docOrder = frappe.get_doc("Trendyol Order", strOrderName)
 
 	if docOrder.status in ("Completed", "Processing"):
-		frappe.throw(f"Order {docOrder.name} is already {docOrder.status}")
+		dctResult = frappe._dict({
+			"op_result": False,
+			"op_message": f"Order {docOrder.name} is already {docOrder.status}",
+		})
+		return dctResult
 
-	docSettings = frappe.get_doc("Trendyol Settings", docOrder.company)
-	_process_single_order(docOrder, docSettings)
+	strSettingsName = frappe.db.get_value("Trendyol Settings", {"company": docOrder.company}, "name")
+	if not strSettingsName:
+		dctResult = frappe._dict({
+			"op_result": False,
+			"op_message": f"No Trendyol Settings found for company {docOrder.company}",
+		})
+		return dctResult
+
+	docSettings = frappe.get_doc("Trendyol Settings", strSettingsName)
+	try:
+		_process_single_order(docOrder, docSettings)
+	except Exception:
+		frappe.log_error(
+			f"Trendyol create_sales_order failed for {docOrder.name}",
+			frappe.get_traceback(),
+		)
+		dctResult = frappe._dict({
+			"op_result": False,
+			"op_message": f"Failed to create Sales Order for {docOrder.name}. See Error Log.",
+		})
+		return dctResult
 
 	dctResult = frappe._dict({
 		"op_result": True,
@@ -547,32 +571,15 @@ def _ensure_item(dctItem, docSettings, dctProductCodeMap):
 
 
 def _resolve_item_via_product_code(dctItem, docSettings, dctProductCodeMap):
-    """Match by productCode: search Item by item_code, create if not found."""
-    strProductCode = dctProductCodeMap.get(dctItem.barcode or dctItem.sku, "")
-    if strProductCode:
-        if frappe.db.exists("Item", strProductCode):
+    """Match by stock_code → productCode → barcode."""
+    if dctItem.stock_code and frappe.db.exists("Item", dctItem.stock_code):
+        strItemCode = dctItem.stock_code
+    else:
+        strProductCode = dctProductCodeMap.get(dctItem.barcode or dctItem.sku, "")
+        if strProductCode and frappe.db.exists("Item", strProductCode):
             strItemCode = strProductCode
         else:
-            strBarcodeFallback = _resolve_item_via_barcode(dctItem)
-            if strBarcodeFallback:
-                strItemCode = strBarcodeFallback
-            else:
-                lstBarcodes = []
-                if dctItem.barcode and not frappe.db.exists("Item Barcode", {"barcode": dctItem.barcode}):
-                    lstBarcodes = [{"barcode": dctItem.barcode}]
-                docItem = frappe.get_doc({
-                    "doctype": "Item",
-                    "item_code": strProductCode,
-                    "item_name": dctItem.product_name,
-                    "stock_uom": "Piece",
-                    "is_stock_item": 1,
-                    "item_group": docSettings.default_item_group,
-                    "barcodes": lstBarcodes,
-                })
-                docItem.insert(ignore_permissions=True, ignore_mandatory=True)
-                strItemCode = strProductCode
-    else:
-        strItemCode = None
+            strItemCode = _resolve_item_via_barcode(dctItem)
     return strItemCode
 
 
@@ -800,25 +807,31 @@ def _process_single_order(docOrder, docSettings):
         strSalesPerson = docSettings.default_sales_person or "Satış Ekibi"
         docSO.append("sales_team", {"sales_person": strSalesPerson, "allocated_percentage": 100})
 
+        lstVatRatesInOrder = set()
         for dctItem in docOrder.items:
             strItemCode = _ensure_item(dctItem, docSettings, dctProductCodeMap)
             docSO.append("items", {
                 "item_code": strItemCode,
                 "item_name": dctItem.product_name,
+                "description": dctItem.product_name,
                 "qty": dctItem.quantity,
-                "rate": dctItem.price,
-                "amount": dctItem.amount,
+                "rate": flt(dctItem.price),
                 "warehouse": docSettings.default_warehouse,
                 "delivery_date": docSO.delivery_date,
             })
+            if flt(dctItem.vat_rate or 0):
+                lstVatRatesInOrder.add(flt(dctItem.vat_rate))
 
         if docSettings.tax_mapping:
             for dctTaxMap in docSettings.tax_mapping:
-                docSO.append("taxes", {
-                    "charge_type": "On Net Total",
-                    "rate": dctTaxMap.vat_rate,
-                    "account_head": dctTaxMap.account_head,
-                })
+                if flt(dctTaxMap.vat_rate) in lstVatRatesInOrder:
+                    docSO.append("taxes", {
+                        "charge_type": "On Net Total",
+                        "account_head": dctTaxMap.account_head,
+                        "rate": dctTaxMap.vat_rate,
+                        "description": f"KDV %{int(dctTaxMap.vat_rate)}",
+                        "included_in_print_rate": 1,
+                    })
 
         docSO.insert(ignore_permissions=True)
         docSO.submit()

@@ -16,6 +16,12 @@ frappe.ui.form.on('Trendyol Order', {
                                 indicator: 'green',
                             }, 5);
                             frm.reload_doc();
+                        } else if (r.message) {
+                            frappe.msgprint({
+                                message: r.message.op_message,
+                                title: __('Sales Order Creation'),
+                                indicator: 'red',
+                            });
                         }
                     },
                 });
