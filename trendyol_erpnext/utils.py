@@ -1,12 +1,13 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import frappe
 import requests
 from requests.auth import HTTPBasicAuth
 
 MAX_POLL_PAGES = 10
-MAX_SYNC_PAGES = 100
+MAX_WINDOW_DAYS = 14
+GMT3 = timezone(timedelta(hours=3))
 
 
 def _log_trendyol_call(docSettings, strLogTitle, strMethod, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dStatusCode=None, strResponseBody=None):
@@ -33,22 +34,50 @@ def _build_trendyol_request(docSettings, dctParams):
     strApiKey = docSettings.get_password("api_key")
     strApiSecret = docSettings.get_password("api_secret")
     strBaseUrl = docSettings.service_url.rstrip("/")
-    strUrl = f"{strBaseUrl}/suppliers/{strSupplierId}/orders"
+    strUrl = f"{strBaseUrl}/integration/order/sellers/{strSupplierId}/orders"
     dctHeaders = {
-        "User-Agent": f"{strSupplierId} - SelfIntegration",
+        "User-Agent": f"{strSupplierId} - ERPNextIntegration",
         "Accept": "*/*",
     }
     return strUrl, dctParams, dctHeaders, strApiKey, strApiSecret
+
+
+def _to_epoch_ms(dt):
+    """Convert a datetime to epoch milliseconds in GMT+3."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=GMT3)
+    return int(dt.timestamp() * 1000)
+
+
+def _acquire_poll_lock(strCompany):
+    """Acquire a Redis cache lock for polling. Returns True if acquired."""
+    strLockKey = f"trendyol_poll_lock_{strCompany}"
+    blnAlreadyRunning = frappe.cache().get_value(strLockKey)
+    if blnAlreadyRunning:
+        return False
+    frappe.cache().set_value(strLockKey, True, expires_in_sec=1200)
+    return True
+
+
+def _release_poll_lock(strCompany):
+    """Release the Redis cache lock for polling."""
+    strLockKey = f"trendyol_poll_lock_{strCompany}"
+    frappe.cache().delete_value(strLockKey)
 
 
 @frappe.whitelist()
 def check_connection(docname):
     """Verify connectivity and authentication against the Trendyol API."""
     docSettings = frappe.get_doc("Trendyol Settings", docname)
+    dtNow = datetime.now(GMT3)
+    dtYesterday = dtNow - timedelta(days=1)
     dctParams = {
+        "startDate": _to_epoch_ms(dtYesterday),
+        "endDate": _to_epoch_ms(dtNow),
         "orderByField": "PackageLastModifiedDate",
-        "orderByDirection": "DESC",
+        "orderByDirection": "ASC",
         "size": 1,
+        "page": 0,
     }
     strUrl, dctParams, dctHeaders, strApiKey, strApiSecret = _build_trendyol_request(docSettings, dctParams)
 
@@ -129,45 +158,108 @@ def _run_poll_orders():
 
 
 def _fetch_company_orders(docSettings):
-    """Fetch and upsert orders from Trendyol for a single company."""
+    """Fetch and upsert orders from Trendyol for a single company using 14-day windows."""
     strCompany = docSettings.company
 
-    dctParams = {
-        "orderByField": "PackageLastModifiedDate",
-        "orderByDirection": "DESC",
-        "size": 50,
-        "page": 0,
-    }
-    strUrl, dctParams, dctHeaders, strApiKey, strApiSecret = _build_trendyol_request(docSettings, dctParams)
+    if not _acquire_poll_lock(strCompany):
+        frappe.log_error(
+            "Trendyol poll_orders — skipped (previous job still running)",
+            f"Company: {strCompany}",
+        )
+        return 0, 0
 
+    try:
+        return _fetch_company_orders_inner(docSettings)
+    finally:
+        _release_poll_lock(strCompany)
+
+
+def _fetch_company_orders_inner(docSettings):
+    """Inner fetch logic — runs under the poll lock."""
+    strCompany = docSettings.company
+
+    dtStart = _resolve_start_date(docSettings)
+    if dtStart is None:
+        frappe.throw(
+            "Trendyol poll_orders — both Sync From Date and Last Order Fetch Date are empty. "
+            "Set Sync From Date in Trendyol Settings."
+        )
+
+    dtEnd = datetime.now(GMT3)
+
+    dFetched = 0
+    dFailed = 0
+    dTotalPagesFetched = 0
+
+    while dtStart < dtEnd:
+        dtWindowEnd = min(dtStart + timedelta(days=MAX_WINDOW_DAYS), dtEnd)
+        dWindowFetched, dWindowFailed, dWindowPages, dtWindowLastMod = _fetch_date_window(
+            docSettings, dtStart, dtWindowEnd,
+        )
+        dFetched += dWindowFetched
+        dFailed += dWindowFailed
+        dTotalPagesFetched += dWindowPages
+
+        if dtWindowLastMod is not None:
+            _save_checkpoint(docSettings, dtWindowLastMod)
+            dtStart = dtWindowLastMod
+        else:
+            _save_checkpoint(docSettings, dtWindowEnd)
+            dtStart = dtWindowEnd
+
+        if dTotalPagesFetched >= MAX_POLL_PAGES:
+            break
+
+    return dFetched, dFailed
+
+
+def _resolve_start_date(docSettings):
+    """Determine the sync start date from last_order_fetch_date or sync_from_date."""
     dtLastFetch = None
-    if docSettings.last_order_fetch:
+    if docSettings.last_order_fetch_date:
         try:
-            dtLastFetch = datetime.fromisoformat(docSettings.last_order_fetch)
+            dtLastFetch = datetime.fromisoformat(docSettings.last_order_fetch_date)
+            if dtLastFetch.tzinfo is None:
+                dtLastFetch = dtLastFetch.replace(tzinfo=GMT3)
         except (ValueError, TypeError):
             dtLastFetch = None
 
     dtSyncFrom = None
     if docSettings.sync_from_date:
         try:
-            dtSyncFrom = datetime.combine(docSettings.sync_from_date, datetime.min.time())
+            dtSyncFrom = datetime.combine(docSettings.sync_from_date, datetime.min.time()).replace(tzinfo=GMT3)
         except (ValueError, TypeError):
             dtSyncFrom = None
 
-    dtCutoff = dtLastFetch
-    if dtSyncFrom is not None and (dtCutoff is None or dtSyncFrom > dtCutoff):
-        dtCutoff = dtSyncFrom
+    dtResult = None
+    if dtLastFetch is not None:
+        dtResult = dtLastFetch
+    if dtSyncFrom is not None and (dtResult is None or dtSyncFrom > dtResult):
+        dtResult = dtSyncFrom
+
+    return dtResult
+
+
+def _fetch_date_window(docSettings, dtStart, dtEnd):
+    """Fetch all pages within a single date window. Returns (fetched, failed, pagesProcessed, lastModDate)."""
+    strCompany = docSettings.company
+    dctParams = {
+        "startDate": _to_epoch_ms(dtStart),
+        "endDate": _to_epoch_ms(dtEnd),
+        "orderByField": "PackageLastModifiedDate",
+        "orderByDirection": "ASC",
+        "size": 50,
+        "page": 0,
+    }
+    strUrl, dctParams, dctHeaders, strApiKey, strApiSecret = _build_trendyol_request(docSettings, dctParams)
 
     dPage = 0
     dTotalPages = 1
     dFetched = 0
     dFailed = 0
-    blnStopped = False
-    blnError = False
     dtLatestMod = None
 
-    dMaxPages = MAX_SYNC_PAGES if dtSyncFrom else MAX_POLL_PAGES
-    while dPage < dTotalPages and dPage < dMaxPages:
+    while dPage < dTotalPages and dPage < MAX_POLL_PAGES:
         dctParams["page"] = dPage
 
         dctResponse = _fetch_trendyol_page(
@@ -177,8 +269,13 @@ def _fetch_company_orders(docSettings):
 
         if dctResponse is None or dctResponse.status_code != 200:
             dFailed += 1
-            blnError = True
-            break
+            if dctResponse is not None:
+                frappe.log_error(
+                    "Trendyol poll_orders — page fetch failed",
+                    f"Status: {dctResponse.status_code}, Page: {dPage}, Window: {dtStart.date()} to {dtEnd.date()}",
+                )
+            dPage += 1
+            continue
 
         dctData = dctResponse.json()
         dTotalPages = dctData.get("totalPages", 0)
@@ -187,7 +284,6 @@ def _fetch_company_orders(docSettings):
         if not lstContent:
             break
 
-        blnAllOld = True
         for dctOrderContent in lstContent:
             try:
                 docOrder = _upsert_order(dctOrderContent, strCompany)
@@ -203,30 +299,29 @@ def _fetch_company_orders(docSettings):
             strLastModMs = dctOrderContent.get("lastModifiedDate")
             if strLastModMs:
                 try:
-                    dtMod = datetime.fromtimestamp(int(strLastModMs) / 1000)
-                    if dtCutoff is None or dtMod > dtCutoff:
-                        blnAllOld = False
+                    dtMod = datetime.fromtimestamp(int(strLastModMs) / 1000, tz=GMT3)
                     if dtLatestMod is None or dtMod > dtLatestMod:
                         dtLatestMod = dtMod
                 except (ValueError, TypeError, OSError):
-                    blnAllOld = False
-
-        if blnAllOld and dtCutoff is not None:
-            blnStopped = True
-            break
+                    pass
 
         dPage += 1
 
-    if not blnStopped and not blnError and dtLatestMod is not None:
-        try:
-            docSettings.db_set("last_order_fetch", dtLatestMod.isoformat())
-        except Exception:
-            frappe.log_error(
-                "Trendyol poll_orders — failed to update last_order_fetch",
-                frappe.get_traceback(),
-            )
+    if dtLatestMod is not None:
+        _save_checkpoint(docSettings, dtLatestMod)
 
-    return dFetched, dFailed
+    return dFetched, dFailed, dPage, dtLatestMod
+
+
+def _save_checkpoint(docSettings, dtModDate):
+    """Save the last_order_fetch_date checkpoint."""
+    try:
+        docSettings.db_set("last_order_fetch_date", dtModDate.isoformat(), update_modified=False)
+    except Exception:
+        frappe.log_error(
+            "Trendyol poll_orders — failed to update last_order_fetch_date",
+            frappe.get_traceback(),
+        )
 
 
 def _fetch_trendyol_page(docSettings, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret):
@@ -398,6 +493,24 @@ def _process_single_order_job(order_name, settings_name):
 			f"Trendyol process job failed for {order_name}",
 			frappe.get_traceback(),
 		)
+
+
+@frappe.whitelist()
+def create_sales_order_from_trendyol_order(strOrderName):
+	"""Create a Sales Order from a single Trendyol Order. Called from UI button."""
+	docOrder = frappe.get_doc("Trendyol Order", strOrderName)
+
+	if docOrder.status in ("Completed", "Processing"):
+		frappe.throw(f"Order {docOrder.name} is already {docOrder.status}")
+
+	docSettings = frappe.get_doc("Trendyol Settings", docOrder.company)
+	_process_single_order(docOrder, docSettings)
+
+	dctResult = frappe._dict({
+		"op_result": True,
+		"op_message": f"Sales Order created for {docOrder.name}",
+	})
+	return dctResult
 
 
 def _ensure_item(dctItem, docSettings, dctProductCodeMap):
