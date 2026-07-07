@@ -16,6 +16,7 @@
   "btn_check_connection",
   "column_break_pmap",
   "sync_from_date",
+  "order_status",
   "default_customer",
   "default_warehouse",
   "default_territory",
@@ -115,7 +116,7 @@
   {
    "fieldname": "item_mapping",
    "fieldtype": "Table",
-   "label": "item mapping",
+   "label": "Item Mapping",
    "options": "Trendyol Item Map"
   },
   {
@@ -145,12 +146,19 @@
    "fieldname": "last_order_fetch_date",
    "fieldtype": "Data",
    "label": "Last Order Fetch Date"
+  },
+  {
+   "description": "Sync only selected order status.",
+   "fieldname": "order_status",
+   "fieldtype": "Select",
+   "label": "Order Status",
+   "options": "\nCreated\nPicking\nDelivered"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-06 17:24:58.651036",
+ "modified": "2026-07-07 16:28:54.921013",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",

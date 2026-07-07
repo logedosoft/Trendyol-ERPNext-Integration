@@ -374,6 +374,7 @@ def _upsert_order(dctOrderContent, strCompany):
         docOrder.cargo_provider_name = dctOrderContent.get("cargoProviderName", "")
         docOrder.shipment_address = json.dumps(dctOrderContent.get("shipmentAddress"), ensure_ascii=False)
         docOrder.invoice_address = json.dumps(dctOrderContent.get("invoiceAddress"), ensure_ascii=False)
+        docOrder.commercial = 1 if dctOrderContent.get("commercial") else 0
         docOrder.company = strCompany
 
         if not strExistingName:

@@ -16,6 +16,7 @@
   "total_price",
   "customer_name",
   "customer_email",
+  "commercial",
   "column_break_etfg",
   "sales_order",
   "retry_count",
@@ -81,7 +82,7 @@
   {
    "fieldname": "currency",
    "fieldtype": "Link",
-   "label": "currency",
+   "label": "Currency",
    "options": "Currency"
   },
   {
@@ -97,7 +98,7 @@
   {
    "fieldname": "customer_email",
    "fieldtype": "Data",
-   "label": "customer_email"
+   "label": "Customer E-Mail"
   },
   {
    "fieldname": "customer_name",
@@ -107,12 +108,12 @@
   {
    "fieldname": "cargo_tracking_number",
    "fieldtype": "Data",
-   "label": "cargo_tracking_number"
+   "label": "Cargo Tracking Number"
   },
   {
    "fieldname": "cargo_provider_name",
    "fieldtype": "Data",
-   "label": "cargo_provider_name"
+   "label": "Cargo Provider Name"
   },
   {
    "fieldname": "section_break_dpno",
@@ -137,28 +138,28 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "sales_order",
+   "label": "Sales Order",
    "options": "Sales Order"
   },
   {
    "fieldname": "retry_count",
    "fieldtype": "Int",
-   "label": "retry_count"
+   "label": "Retry Count"
   },
   {
    "fieldname": "error_type",
    "fieldtype": "Data",
-   "label": "error_type"
+   "label": "Error Type"
   },
   {
    "fieldname": "error_message",
    "fieldtype": "Code",
-   "label": "error_message"
+   "label": "Error Message"
   },
   {
    "fieldname": "processed_at",
    "fieldtype": "Datetime",
-   "label": "processed_at"
+   "label": "Processed  At"
   },
   {
    "fieldname": "section_break_hezw",
@@ -169,12 +170,18 @@
    "fieldtype": "Table",
    "label": "Items",
    "options": "Trendyol Order Line"
+  },
+  {
+   "default": "0",
+   "fieldname": "commercial",
+   "fieldtype": "Check",
+   "label": "Commercial"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-07 13:32:26.066626",
+ "modified": "2026-07-07 16:25:53.104192",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Order",
