@@ -14,6 +14,7 @@
    "fieldname": "trendyol_order",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Trendyol Order",
    "options": "Trendyol Order",
    "reqd": 1
@@ -35,7 +36,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-19 02:14:47.199722",
+ "modified": "2026-07-07 13:32:43.777928",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Order Payload",
