@@ -152,13 +152,14 @@
    "fieldname": "order_status",
    "fieldtype": "Select",
    "label": "Order Status",
-   "options": "\nCreated\nPicking\nDelivered"
+   "options": "\nALL\nNot Awaiting or Created",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-07 16:28:54.921013",
+ "modified": "2026-07-13 16:00:03.332634",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",

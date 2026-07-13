@@ -9,6 +9,7 @@ from requests.auth import HTTPBasicAuth
 MAX_POLL_PAGES = 10
 MAX_WINDOW_DAYS = 14
 GMT3 = timezone(timedelta(hours=3))
+TRENDYOL_STATUSES_TO_SKIP = {"Awaiting", "Created"}
 
 
 def _log_trendyol_call(docSettings, strLogTitle, strMethod, strUrl, dctHeaders, dctParams, strApiKey, strApiSecret, dStatusCode=None, strResponseBody=None):
@@ -286,6 +287,8 @@ def _fetch_date_window(docSettings, dtStart, dtEnd):
             break
 
         for dctOrderContent in lstContent:
+            if docSettings.order_status != "ALL" and dctOrderContent.get("status", "") in TRENDYOL_STATUSES_TO_SKIP:
+                continue
             try:
                 docOrder = _upsert_order(dctOrderContent, strCompany)
                 _upsert_payload(docOrder, dctOrderContent)
