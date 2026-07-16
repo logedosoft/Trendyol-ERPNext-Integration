@@ -18,6 +18,7 @@
   "sync_from_date",
   "order_status",
   "default_customer",
+  "default_customer_group",
   "default_warehouse",
   "default_territory",
   "default_sales_person",
@@ -152,13 +153,20 @@
    "fieldname": "order_status",
    "fieldtype": "Select",
    "label": "Order Status",
-   "options": "\nCreated\nPicking\nDelivered"
+   "options": "\nALL\nNot Awaiting or Created",
+   "reqd": 1
+  },
+  {
+   "fieldname": "default_customer_group",
+   "fieldtype": "Link",
+   "label": "Default Customer Group",
+   "options": "Customer Group"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-07 16:28:54.921013",
+ "modified": "2026-07-16 11:37:37.200718",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
