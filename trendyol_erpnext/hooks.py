@@ -83,12 +83,13 @@ app_license = "mit"
 # ------------
 
 # before_install = "trendyol_erpnext.install.before_install"
-# after_install = "trendyol_erpnext.install.after_install"
+after_install = "trendyol_erpnext.install.after_install"
+after_migrate = ["trendyol_erpnext.install.after_sync"]
 
 # Uninstallation
 # ------------
 
-# before_uninstall = "trendyol_erpnext.uninstall.before_uninstall"
+before_uninstall = "trendyol_erpnext.install.before_uninstall"
 # after_uninstall = "trendyol_erpnext.uninstall.after_uninstall"
 
 # Integration Setup
