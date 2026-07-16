@@ -672,24 +672,29 @@ def _extract_customer_id(docOrder):
     return strCustId
 
 
-def _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCustId):
-    """Create or update a Shipping Address from the Trendyol shipment data.
+def _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCustId, strAddressType="Shipping"):
+    """Create or update an Address from Trendyol data.
 
-    Address name = "{firstName} {lastName} {trendyolCustomerId}".
+    Address name = "{firstName} {lastName} {trendyolCustomerId}" (Shipping)
+    or "{firstName} {lastName} {trendyolCustomerId} - Billing" (Billing).
     If address already exists and fields changed, update it.
     If not found, create it.
     """
-    dctAddrData = _parse_shipment_address(docOrder)
+    if strAddressType == "Billing":
+        dctAddrData = _parse_address_json(docOrder.invoice_address)
+    else:
+        dctAddrData = _parse_address_json(docOrder.shipment_address)
     strFirstName = dctAddrData.get("firstName", "")
     strLastName = dctAddrData.get("lastName", "")
 
     if strFirstName or strLastName:
-        strAddressName = f"{strFirstName} {strLastName} {strTrendyolCustId}".strip()
+        strSuffix = f" - {strAddressType}" if strAddressType != "Shipping" else ""
+        strAddressName = f"{strFirstName} {strLastName} {strTrendyolCustId}{strSuffix}".strip()
         blnExists = frappe.db.exists("Address", strAddressName)
         if blnExists:
             _update_address_if_changed(strAddressName, dctAddrData, strCustomer)
         else:
-            _create_shipping_address(strAddressName, dctAddrData, strCustomer)
+            _create_shipping_address(strAddressName, dctAddrData, strCustomer, strAddressType)
         strResult = strAddressName
     else:
         strResult = _fallback_shipping_address(strCustomer)
@@ -697,26 +702,25 @@ def _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCust
     return strResult
 
 
-def _parse_shipment_address(docOrder):
-    """Parse the shipment_address JSON from a Trendyol Order, returning a dict."""
+def _parse_address_json(strRaw):
+    """Parse an address JSON string or dict from Trendyol, returning a dict."""
     dctResult = {}
-    if docOrder.shipment_address:
-        strRaw = docOrder.shipment_address
+    if strRaw:
         if isinstance(strRaw, dict):
             dctResult = strRaw
         else:
             try:
                 dctResult = json.loads(strRaw)
             except (json.JSONDecodeError, TypeError):
-                dctResult = {}
+                pass
     return dctResult
 
 
-def _create_shipping_address(strAddressName, dctAddrData, strCustomer):
-    """Create a new Shipping Address and link it to the customer."""
+def _create_shipping_address(strAddressName, dctAddrData, strCustomer, strAddressType="Shipping"):
+    """Create a new Address and link it to the customer."""
     docAddress = frappe.get_doc({
         "doctype": "Address",
-        "address_type": "Shipping",
+        "address_type": strAddressType,
         "address_line1": dctAddrData.get("address1", ""),
         "address_line2": dctAddrData.get("address2", ""),
         "city": dctAddrData.get("city", ""),
@@ -786,15 +790,48 @@ def _fallback_shipping_address(strCustomer):
     return lstExisting[0] if lstExisting else ""
 
 
+def _create_commercial_customer(docOrder, docSettings, strTrendyolCustId):
+    """Create a Customer from Trendyol order details for commercial orders."""
+    dctInvAddr = _parse_address_json(docOrder.invoice_address)
+    docCustomer = frappe.get_doc({
+        "doctype": "Customer",
+        "customer_name": docOrder.customer_name,
+        "customer_group": docSettings.default_customer_group or "All Customer Groups",
+        "territory": docSettings.default_territory or "All Territories",
+        "customer_type": "Company",
+        "trendyol_customer_id": strTrendyolCustId,
+    })
+    if docOrder.customer_email:
+        docCustomer.email_id = docOrder.customer_email
+    if dctInvAddr.get("taxNumber"):
+        docCustomer.tax_id = dctInvAddr.get("taxNumber")
+    if dctInvAddr.get("taxOffice"):
+        docCustomer.custom_tax_office = dctInvAddr.get("taxOffice")
+    docCustomer.insert(ignore_permissions=True, ignore_mandatory=True)
+    return docCustomer.name
+
+
+def _resolve_customer(docOrder, docSettings, strTrendyolCustId):
+    """Resolve customer: commercial orders get a new Customer, others use default."""
+    if docOrder.commercial:
+        strExisting = frappe.db.get_value("Customer", {"trendyol_customer_id": strTrendyolCustId}, "name")
+        if not strExisting:
+            strExisting = _create_commercial_customer(docOrder, docSettings, strTrendyolCustId)
+        strResult = strExisting
+    else:
+        strResult = docSettings.default_customer or "Guest"
+    return strResult
+
+
 def _process_single_order(docOrder, docSettings):
     """Convert a single staged Trendyol Order into an ERPNext Sales Order."""
     docOrder.status = "Processing"
     docOrder.save(ignore_permissions=True)
 
     try:
-        strCustomer = docSettings.default_customer or "Guest"
         dctProductCodeMap = _build_product_code_map(docOrder)
         strTrendyolCustId = _extract_customer_id(docOrder)
+        strCustomer = _resolve_customer(docOrder, docSettings, strTrendyolCustId)
 
         docSO = frappe.new_doc("Sales Order")
         docSO.customer = strCustomer
@@ -806,6 +843,10 @@ def _process_single_order(docOrder, docSettings):
         docSO.currency = "TRY"
         docSO.selling_price_list = "Standart Satış"
         docSO.shipping_address_name = _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCustId)
+        if docOrder.commercial:
+            docSO.customer_address = _ensure_shipping_address(
+                docOrder, docSettings, strCustomer, strTrendyolCustId, strAddressType="Billing"
+            )
         if docSettings.default_territory:
             docSO.territory = docSettings.default_territory
         strSalesPerson = docSettings.default_sales_person or "Satış Ekibi"

@@ -10,7 +10,13 @@ def get_custom_fields():
 				"fieldtype": "Data",
 				"label": "Trendyol Customer ID",
 				"insert_after": "dn_required",
-			}
+			},
+			{
+				"fieldname": "custom_tax_office",
+				"fieldtype": "Data",
+				"label": "Tax Office",
+				"insert_after": "trendyol_customer_id",
+			},
 		],
 	}
 
