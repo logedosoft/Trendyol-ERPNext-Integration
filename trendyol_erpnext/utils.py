@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt, rounded
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -791,23 +791,58 @@ def _fallback_shipping_address(strCustomer):
 
 
 def _create_commercial_customer(docOrder, docSettings, strTrendyolCustId):
-    """Create a Customer from Trendyol order details for commercial orders."""
+    """Create a Customer from Trendyol order details for commercial orders.
+
+    Address is created first (without a customer link), then the Customer is
+    created with ``customer_primary_address`` pointing to it, and finally the
+    Address is back-linked to the Customer.  This avoids the circular
+    dependency and eliminates the need for ``ignore_mandatory=True``.
+    """
     dctInvAddr = _parse_address_json(docOrder.invoice_address)
+    strCompanyName = dctInvAddr.get("company", "").strip() or docOrder.customer_name
+
+    # --- Step 1: create Billing Address (no customer link yet) --------------
+    docBillingAddr = frappe.get_doc({
+        "doctype": "Address",
+        "address_title": f"{strCompanyName} {strTrendyolCustId}",
+        "address_type": "Billing",
+        "address_line1": dctInvAddr.get("address1", ""),
+        "address_line2": dctInvAddr.get("address2", ""),
+        "city": dctInvAddr.get("city", ""),
+        "county": dctInvAddr.get("district", ""),
+        "state": dctInvAddr.get("stateName", ""),
+        "pincode": dctInvAddr.get("postalCode", ""),
+        "country": _resolve_country(dctInvAddr.get("countryCode", "TR")),
+        "phone": dctInvAddr.get("phone"),
+    })
+    docBillingAddr.insert()
+    strBillingAddrName = docBillingAddr.name
+
+    # --- Step 2: create Customer with all mandatory fields ------------------
+    strDefaultCurrency = frappe.db.get_value("Company", docSettings.company, "default_currency") or "TRY"
     docCustomer = frappe.get_doc({
         "doctype": "Customer",
-        "customer_name": docOrder.customer_name,
+        "customer_name": strCompanyName,
         "customer_group": docSettings.default_customer_group or "All Customer Groups",
         "territory": docSettings.default_territory or "All Territories",
         "customer_type": "Company",
         "trendyol_customer_id": strTrendyolCustId,
+        "default_currency": strDefaultCurrency,
+        "customer_primary_address": strBillingAddrName,
+        "language": "tr",
+        "tax_id": dctInvAddr.get("taxNumber") or "-",
     })
     if docOrder.customer_email:
         docCustomer.email_id = docOrder.customer_email
-    if dctInvAddr.get("taxNumber"):
-        docCustomer.tax_id = dctInvAddr.get("taxNumber")
     if dctInvAddr.get("taxOffice"):
         docCustomer.custom_tax_office = dctInvAddr.get("taxOffice")
-    docCustomer.insert(ignore_permissions=True, ignore_mandatory=True)
+    docCustomer.insert()
+
+    # --- Step 3: back-link Address to Customer ------------------------------
+    docBillingAddr = frappe.get_doc("Address", strBillingAddrName)
+    docBillingAddr.append("links", {"link_doctype": "Customer", "link_name": docCustomer.name})
+    docBillingAddr.save()
+
     return docCustomer.name
 
 
@@ -844,9 +879,7 @@ def _process_single_order(docOrder, docSettings):
         docSO.selling_price_list = "Standart Satış"
         docSO.shipping_address_name = _ensure_shipping_address(docOrder, docSettings, strCustomer, strTrendyolCustId)
         if docOrder.commercial:
-            docSO.customer_address = _ensure_shipping_address(
-                docOrder, docSettings, strCustomer, strTrendyolCustId, strAddressType="Billing"
-            )
+            docSO.customer_address = frappe.db.get_value("Customer", strCustomer, "customer_primary_address")
         if docSettings.default_territory:
             docSO.territory = docSettings.default_territory
         strSalesPerson = docSettings.default_sales_person or "Satış Ekibi"
@@ -879,6 +912,15 @@ def _process_single_order(docOrder, docSettings):
                     })
 
         docSO.insert(ignore_permissions=True)
+
+        # --- Round monetary values to avoid float drift on submit -----------
+        dPrecision = cint(frappe.db.get_default("currency_precision")) or 4
+        for dctItemRow in docSO.items:
+            dctItemRow.amount = rounded(dctItemRow.amount, dPrecision)
+            dctItemRow.net_amount = rounded(dctItemRow.net_amount, dPrecision)
+            dctItemRow.discount_amount = rounded(dctItemRow.discount_amount, dPrecision)
+            dctItemRow.rate = rounded(dctItemRow.rate, dPrecision)
+        docSO.save(ignore_permissions=True)
         docSO.submit()
 
         docOrder.status = "Completed"
