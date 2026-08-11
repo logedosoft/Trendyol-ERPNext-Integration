@@ -937,3 +937,199 @@ def _process_single_order(docOrder, docSettings):
         docOrder.error_message = frappe.get_traceback()
         docOrder.save(ignore_permissions=True)
         raise
+
+
+@frappe.whitelist()
+def test_send_invoice_pdf(strSalesOrderName):
+    """Validate chain and upload invoice PDF to Trendyol for a single Sales Order."""
+    dctResult = frappe._dict({
+        "op_result": False,
+        "op_message": "",
+        "steps": [],
+    })
+
+    def add_step(strStep, strStatus, strMessage=""):
+        dctResult.steps.append({
+            "step": strStep,
+            "status": strStatus,
+            "message": strMessage,
+        })
+
+    # Step 1: Load Sales Order
+    add_step("Step 1: Load Sales Order", "info", f"Fetching {strSalesOrderName}...")
+    blnSOLinked = frappe.db.exists("Sales Order", strSalesOrderName)
+    if not blnSOLinked:
+        add_step("Step 1: Load Sales Order", "error", f"Sales Order {strSalesOrderName} not found")
+        dctResult.op_message = f"Sales Order {strSalesOrderName} not found"
+        return dctResult
+    add_step("Step 1: Load Sales Order", "success", f"Sales Order {strSalesOrderName} loaded")
+
+    # Step 2: Find linked Trendyol Order
+    add_step("Step 2: Find Trendyol Order", "info", "Searching for linked Trendyol Order...")
+    strTrendyolOrderName = frappe.db.get_value(
+        "Trendyol Order",
+        {"sales_order": strSalesOrderName},
+        "name",
+    )
+    if not strTrendyolOrderName:
+        add_step("Step 2: Find Trendyol Order", "error", "No Trendyol Order linked to this Sales Order")
+        dctResult.op_message = "No Trendyol Order linked to this Sales Order"
+        return dctResult
+    docOrder = frappe.get_doc("Trendyol Order", strTrendyolOrderName)
+    add_step("Step 2: Find Trendyol Order", "success", f"Found: {strTrendyolOrderName} (order #{docOrder.order_number})")
+
+    # Step 3: Verify shipment_package_id
+    add_step("Step 3: Check Shipment Package ID", "info", "Verifying shipment_package_id...")
+    if not docOrder.shipment_package_id:
+        add_step("Step 3: Check Shipment Package ID", "error", "shipment_package_id is empty on Trendyol Order")
+        dctResult.op_message = "shipment_package_id is empty on Trendyol Order"
+        return dctResult
+    add_step("Step 3: Check Shipment Package ID", "success", f"shipment_package_id: {docOrder.shipment_package_id}")
+
+    # Step 4: Extract customer_id from payload
+    add_step("Step 4: Extract Customer ID", "info", "Reading customerId from Trendyol payload...")
+    strCustomerId = _extract_customer_id(docOrder)
+    if not strCustomerId:
+        add_step("Step 4: Extract Customer ID", "error", "customerId not found in Trendyol payload")
+        dctResult.op_message = "customerId not found in Trendyol payload"
+        return dctResult
+    add_step("Step 4: Extract Customer ID", "success", f"customerId: {strCustomerId}")
+
+    # Step 5: Load Trendyol Settings
+    add_step("Step 5: Load Settings", "info", "Loading Trendyol Settings...")
+    strSettingsName = frappe.db.get_value("Trendyol Settings", {"company": docOrder.company}, "name")
+    if not strSettingsName:
+        add_step("Step 5: Load Settings", "error", f"No Trendyol Settings for company {docOrder.company}")
+        dctResult.op_message = f"No Trendyol Settings for company {docOrder.company}"
+        return dctResult
+    docSettings = frappe.get_doc("Trendyol Settings", strSettingsName)
+    strApiKey = docSettings.get_password("api_key")
+    strApiSecret = docSettings.get_password("api_secret")
+    if not strApiKey or not strApiSecret:
+        add_step("Step 5: Load Settings", "error", "API Key or API Secret not configured")
+        dctResult.op_message = "API Key or API Secret not configured"
+        return dctResult
+    add_step("Step 5: Load Settings", "success", f"Supplier ID: {docSettings.supplier_id}")
+
+    # Step 6: Find submitted Sales Invoice (linked via Sales Invoice Item child table)
+    add_step("Step 6: Find Sales Invoice", "info", "Searching for submitted Sales Invoice linked to this SO...")
+    strSIName = frappe.db.get_value(
+        "Sales Invoice Item",
+        {"sales_order": strSalesOrderName},
+        "parent",
+    )
+    if strSIName:
+        blnSIDocstatus = frappe.db.get_value("Sales Invoice", strSIName, "docstatus")
+        if blnSIDocstatus != 1:
+            strSIName = None
+    if not strSIName:
+        add_step("Step 6: Find Sales Invoice", "error", "No submitted Sales Invoice found for this Sales Order")
+        dctResult.op_message = "No submitted Sales Invoice found for this Sales Order"
+        return dctResult
+    add_step("Step 6: Find Sales Invoice", "success", f"Found: {strSIName}")
+
+    # Step 7: Find PDF attachment on Sales Invoice
+    add_step("Step 7: Find PDF Attachment", "info", "Searching for attached PDF file...")
+    lstPDFFiles = frappe.get_all(
+        "File",
+        filters={
+            "attached_to_doctype": "Sales Invoice",
+            "attached_to_name": strSIName,
+            "file_name": ["like", "%.pdf"],
+        },
+        fields=["name", "file_name"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if not lstPDFFiles:
+        add_step("Step 7: Find PDF Attachment", "error", "No PDF file attached to this Sales Invoice")
+        dctResult.op_message = "No PDF file attached to this Sales Invoice"
+        return dctResult
+    strFileName = lstPDFFiles[0].file_name
+    add_step("Step 7: Find PDF Attachment", "success", f"Found PDF: {strFileName}")
+
+    # Step 8: Read PDF bytes
+    add_step("Step 8: Read PDF Content", "info", "Reading PDF file content...")
+    try:
+        docFile = frappe.get_doc("File", lstPDFFiles[0].name)
+        bytesPDFContent = docFile.get_content()
+    except Exception:
+        add_step("Step 8: Read PDF Content", "error", f"Failed to read PDF: {frappe.get_traceback()}")
+        dctResult.op_message = "Failed to read PDF file content"
+        return dctResult
+    if not bytesPDFContent or len(bytesPDFContent) < 100:
+        add_step("Step 8: Read PDF Content", "error", f"PDF content is empty or too small ({len(bytesPDFContent or b'')} bytes)")
+        dctResult.op_message = "PDF content is empty or too small"
+        return dctResult
+    add_step("Step 8: Read PDF Content", "success", f"PDF size: {len(bytesPDFContent)} bytes")
+
+    # Step 9: Upload to Trendyol
+    add_step("Step 9: Upload to Trendyol", "info", "Uploading PDF to Trendyol API...")
+    strBaseUrl = docSettings.service_url.rstrip("/")
+    strSupplierId = docSettings.supplier_id
+    strUploadUrl = f"{strBaseUrl}/integration/sellers/{strSupplierId}/seller-invoice-file"
+    dctHeaders = {
+        "User-Agent": f"{strSupplierId} - SelfIntegration",
+        "storeFrontCode": "TR",
+        "Accept": "*/*",
+    }
+    dctFiles = {
+        "shipmentPackageId": (None, str(docOrder.shipment_package_id)),
+        "file": (strFileName, bytesPDFContent, "application/pdf"),
+    }
+
+    try:
+        dctResponse = requests.post(
+            strUploadUrl,
+            auth=HTTPBasicAuth(strApiKey, strApiSecret),
+            headers=dctHeaders,
+            files=dctFiles,
+            timeout=30,
+        )
+    except requests.exceptions.RequestException:
+        add_step("Step 9: Upload to Trendyol", "error", f"Network error: {frappe.get_traceback()}")
+        dctResult.op_message = "Network error while uploading to Trendyol"
+        return dctResult
+
+    if dctResponse.status_code in (200, 201):
+        add_step("Step 9: Upload to Trendyol", "success", f"Upload successful (HTTP {dctResponse.status_code})")
+        dctResult.op_result = True
+        dctResult.op_message = f"Invoice PDF uploaded successfully for {strSIName}"
+    elif dctResponse.status_code == 401:
+        add_step("Step 9: Upload to Trendyol", "error", "Authentication failed (401) — check API Key / Secret")
+        dctResult.op_message = "Authentication failed — check API Key / Secret"
+    elif dctResponse.status_code == 403:
+        add_step("Step 9: Upload to Trendyol", "error", "Blocked (403) — check User-Agent header or storeFrontCode")
+        dctResult.op_message = "Blocked by Trendyol (403) — check User-Agent or storeFrontCode"
+    elif dctResponse.status_code == 429:
+        add_step("Step 9: Upload to Trendyol", "error", "Rate limited (429) — too many requests, wait and retry")
+        dctResult.op_message = "Rate limited by Trendyol (429)"
+    elif dctResponse.status_code == 400:
+        strRespBody = dctResponse.text[:2000] if dctResponse.text else ""
+        dctRespJSON = {}
+        try:
+            dctRespJSON = dctResponse.json()
+        except Exception:
+            pass
+        lstErrors = dctRespJSON.get("errors", [])
+        strTrendyolMsg = lstErrors[0].get("message", "") if lstErrors else strRespBody
+        if "önceden gönderilmiş" in strTrendyolMsg or "already" in strTrendyolMsg.lower():
+            add_step("Step 9: Upload to Trendyol", "error", f"Invoice already uploaded for this package: {strTrendyolMsg}")
+            dctResult.op_message = "Invoice already uploaded for this shipment package"
+        else:
+            add_step("Step 9: Upload to Trendyol", "error", f"HTTP 400: {strTrendyolMsg}")
+            dctResult.op_message = f"Bad request from Trendyol: {strTrendyolMsg}"
+        frappe.log_error(
+            "Trendyol test_send_invoice_pdf — upload failed",
+            f"Status: {dctResponse.status_code}\nBody: {strRespBody}",
+        )
+    else:
+        strRespBody = dctResponse.text[:2000] if dctResponse.text else ""
+        add_step("Step 9: Upload to Trendyol", "error", f"HTTP {dctResponse.status_code}: {strRespBody}")
+        dctResult.op_message = f"Unexpected response from Trendyol (HTTP {dctResponse.status_code})"
+        frappe.log_error(
+            "Trendyol test_send_invoice_pdf — upload failed",
+            f"Status: {dctResponse.status_code}\nBody: {strRespBody}",
+        )
+
+    return dctResult

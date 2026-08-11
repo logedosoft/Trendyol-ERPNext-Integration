@@ -27,7 +27,9 @@
   "item_map_tab",
   "item_matching",
   "item_mapping",
-  "default_item_group"
+  "default_item_group",
+  "tbtests_tab",
+  "test_pdf_sales_order"
  ],
  "fields": [
   {
@@ -161,12 +163,23 @@
    "fieldtype": "Link",
    "label": "Default Customer Group",
    "options": "Customer Group"
+  },
+  {
+   "fieldname": "tbtests_tab",
+   "fieldtype": "Tab Break",
+   "label": "Tests"
+  },
+  {
+   "fieldname": "test_pdf_sales_order",
+   "fieldtype": "Link",
+   "label": "Sales order send invoice PDF",
+   "options": "Sales Order"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-16 11:37:37.200718",
+ "modified": "2026-08-10 16:45:12.050162",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
