@@ -17,6 +17,8 @@
   "customer_name",
   "customer_email",
   "commercial",
+  "invoice_sent",
+  "invoice_processed_at",
   "column_break_etfg",
   "sales_order",
   "retry_count",
@@ -176,12 +178,23 @@
    "fieldname": "commercial",
    "fieldtype": "Check",
    "label": "Commercial"
+  },
+  {
+   "default": "0",
+   "fieldname": "invoice_sent",
+   "fieldtype": "Check",
+   "label": "Invoice Sent to Trendyol"
+  },
+  {
+   "fieldname": "invoice_processed_at",
+   "fieldtype": "Datetime",
+   "label": "Invoice Processed At"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-07 16:25:53.104192",
+ "modified": "2026-08-12 12:59:17.747745",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Order",

@@ -153,6 +153,7 @@ scheduler_events = {
 	"cron": {
 		"*/5 * * * *": ["trendyol_erpnext.utils.poll_orders"],
 		"*/3 * * * *": ["trendyol_erpnext.utils.process_staged_orders"],
+		"0 * * * *": ["trendyol_erpnext.utils.process_invoice_uploads"],
 	}
 }
 
