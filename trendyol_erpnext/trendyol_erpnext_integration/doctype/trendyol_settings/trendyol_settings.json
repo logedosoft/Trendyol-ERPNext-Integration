@@ -27,7 +27,10 @@
   "item_map_tab",
   "item_matching",
   "item_mapping",
-  "default_item_group"
+  "default_item_group",
+  "tbtests_tab",
+  "test_pdf_sales_order",
+  "test_pdf_trendyol_order"
  ],
  "fields": [
   {
@@ -161,12 +164,29 @@
    "fieldtype": "Link",
    "label": "Default Customer Group",
    "options": "Customer Group"
+  },
+  {
+   "fieldname": "tbtests_tab",
+   "fieldtype": "Tab Break",
+   "label": "Tests"
+  },
+  {
+   "fieldname": "test_pdf_sales_order",
+   "fieldtype": "Link",
+   "label": "Send Invoice PDF to Trendyol via Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "test_pdf_trendyol_order",
+   "fieldtype": "Link",
+   "label": "Send Invoice PDF to Trendyol via Trendyol Order",
+   "options": "Trendyol Order"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-16 11:37:37.200718",
+ "modified": "2026-08-12 13:06:28.996448",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
