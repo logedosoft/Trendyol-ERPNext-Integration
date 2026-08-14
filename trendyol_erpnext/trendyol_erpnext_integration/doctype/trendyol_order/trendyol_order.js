@@ -27,5 +27,22 @@ frappe.ui.form.on('Trendyol Order', {
                 });
             }, __('Create'));
         }
+
+        if (!frm.doc.__islocal && frm.doc.invoice_sent) {
+            frm.add_custom_button(__('Delete Invoice PDF from Trendyol'), () => {
+                frappe.call({
+                    method: 'trendyol_erpnext.utils.delete_trendyol_invoice',
+                    args: { strTrendyolOrderName: frm.doc.name },
+                    freeze: true,
+                    freeze_message: __('Deleting invoice from Trendyol...'),
+                    callback(r) {
+                        if (r.exc || !r.message) return;
+                        _show_invoice_steps_dialog(r.message, "Invoice Deleted from Trendyol", "Invoice Delete Failed", function () {
+                            frm.reload_doc();
+                        });
+                    },
+                });
+            }, __('Actions'));
+        }
     },
 });

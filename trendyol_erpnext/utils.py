@@ -1116,9 +1116,14 @@ def _send_invoice_pdf_to_trendyol(docOrder, docSettings, strFilePrefix=None, dct
 	return dctResult
 
 
-def _build_invoice_comment(dctResult):
-	"""Build the step-by-step HTML comment text for an invoice upload result."""
-	strCommentText = "Trendyol Invoice PDF Upload Results:\n"
+def _build_invoice_comment(dctResult, strTitle=None):
+	"""Build the step-by-step HTML comment text for an invoice operation result.
+
+	``strTitle`` defaults to the upload title; pass a custom string for deletes.
+	"""
+	if not strTitle:
+		strTitle = "Trendyol Invoice PDF Upload Results"
+	strCommentText = f"{strTitle}\n"
 	for dctStep in dctResult.steps:
 		strIcon = "OK" if dctStep["status"] == "success" else ("ERR" if dctStep["status"] == "error" else "INFO")
 		strCommentText += f"<br>{strIcon} {dctStep['step']}: {dctStep['message']}"
@@ -1216,7 +1221,6 @@ def test_send_invoice_pdf_by_trendyol_order(strTrendyolOrderName):
 
 	return dctResult
 
-
 @frappe.whitelist()
 def process_invoice_uploads():
 	"""Enqueue one background job per Trendyol Order that still needs an invoice upload.
@@ -1275,3 +1279,225 @@ def _upload_one_invoice(strOrderName):
 
 	dctResult = _send_invoice_pdf_to_trendyol(docOrder, docSettings, STR_INVOICE_FILE_PREFIX)
 	_finalize_invoice_upload(docOrder, dctResult)
+
+
+@frappe.whitelist()
+def delete_trendyol_invoice(strTrendyolOrderName):
+	"""Delete the previously uploaded invoice PDF from Trendyol for one order.
+
+	Returns frappe._dict with op_result, op_message and steps. The local
+	``invoice_sent`` flag is reset only after Trendyol confirms deletion or
+	returns 400 with a "not found / already deleted" message.
+	"""
+	dctResult = frappe._dict({"op_result": False, "op_message": "", "steps": []})
+
+	def add_step(strStep, strStatus, strMessage=""):
+		dctResult.steps.append({"step": strStep, "status": strStatus, "message": strMessage})
+
+	# Step 0: load Trendyol Order
+	add_step("Step 0: Load Trendyol Order", "info", f"Fetching {strTrendyolOrderName}...")
+	if not frappe.db.exists("Trendyol Order", strTrendyolOrderName):
+		add_step("Step 0: Load Trendyol Order", "error", "Trendyol Order not found")
+		dctResult.op_message = "Trendyol Order not found"
+		return dctResult
+	docOrder = frappe.get_doc("Trendyol Order", strTrendyolOrderName)
+	add_step("Step 0: Load Trendyol Order", "success", f"Found: {docOrder.name} (#{docOrder.order_number})")
+
+	# Step 1: shipment_package_id
+	add_step("Step 1: Shipment Package ID", "info", "Verifying shipment_package_id...")
+	if not docOrder.shipment_package_id:
+		add_step("Step 1: Shipment Package ID", "error", "shipment_package_id is empty")
+		dctResult.op_message = "shipment_package_id is empty on Trendyol Order"
+		return dctResult
+	add_step("Step 1: Shipment Package ID", "success", f"shipment_package_id: {docOrder.shipment_package_id}")
+
+	# Step 2: Settings credentials
+	add_step("Step 2: Settings", "info", "Loading Trendyol credentials...")
+	strSettingsName = frappe.db.get_value("Trendyol Settings", {"company": docOrder.company, "enabled": 1}, "name")
+	if not strSettingsName:
+		add_step("Step 2: Settings", "error", f"No enabled Trendyol Settings for company {docOrder.company}")
+		dctResult.op_message = f"No enabled Trendyol Settings for company {docOrder.company}"
+		return dctResult
+	docSettings = frappe.get_doc("Trendyol Settings", strSettingsName)
+	strApiKey = docSettings.get_password("api_key")
+	strApiSecret = docSettings.get_password("api_secret")
+	if not strApiKey or not strApiSecret:
+		add_step("Step 2: Settings", "error", "API Key or API Secret not configured")
+		dctResult.op_message = "API Key or API Secret not configured"
+		return dctResult
+	add_step("Step 2: Settings", "success", f"Supplier ID: {docSettings.supplier_id}")
+
+	# Step 3: customerId from Trendyol Order Payload
+	add_step("Step 3: Customer ID", "info", "Resolving Trendyol customerId from payload...")
+	strCustomerId = _extract_customer_id(docOrder)
+	if not strCustomerId:
+		add_step("Step 3: Customer ID", "error", "Could not resolve customerId from Trendyol Order Payload")
+		dctResult.op_message = "Could not resolve customerId for this order"
+		return dctResult
+	add_step("Step 3: Customer ID", "success", f"customerId: {strCustomerId}")
+
+	# Step 4: Call Trendyol delete endpoint
+	add_step("Step 4: Delete from Trendyol", "info", "Calling seller-invoice-links/delete...")
+	strDeleteUrl = f"{docSettings.service_url.rstrip('/')}/integration/sellers/{docSettings.supplier_id}/seller-invoice-links/delete"
+	dctDeleteHeaders = {
+		"User-Agent": f"{docSettings.supplier_id} - SelfIntegration",
+		"Content-Type": "application/json",
+		"Accept": "*/*",
+	}
+	dctDeleteBody = {
+		"serviceSourceId": int(docOrder.shipment_package_id),
+		"channelId": 1,
+		"customerId": int(strCustomerId),
+	}
+	try:
+		dctResp = requests.post(
+			strDeleteUrl,
+			auth=HTTPBasicAuth(strApiKey, strApiSecret),
+			headers=dctDeleteHeaders,
+			json=dctDeleteBody,
+			timeout=15,
+		)
+	except requests.exceptions.RequestException:
+		add_step("Step 4: Delete from Trendyol", "error", f"Network error: {frappe.get_traceback()}")
+		dctResult.op_message = "Network error while calling Trendyol delete endpoint"
+		return dctResult
+
+	strRespBody = dctResp.text[:2000] if dctResp.text else ""
+	if dctResp.status_code in (200, 201):
+		add_step("Step 4: Delete from Trendyol", "success", f"Invoice deleted (HTTP {dctResp.status_code})")
+		dctResult.op_result = True
+		dctResult.op_message = f"Invoice deleted successfully for order #{docOrder.order_number}"
+	elif dctResp.status_code == 400:
+		strLower = strRespBody.lower()
+		if any(k in strLower for k in ("bulunamad", "not found", "bulunmaktadır", "already")):
+			add_step("Step 4: Delete from Trendyol", "success", "Invoice already absent — treating as deleted")
+			dctResult.op_result = True
+			dctResult.op_message = f"Invoice was already absent for order #{docOrder.order_number}"
+		else:
+			add_step("Step 4: Delete from Trendyol", "error", f"HTTP 400: {strRespBody[:300]}")
+			dctResult.op_message = f"Trendyol rejected delete: {strRespBody[:300]}"
+			frappe.log_error("Trendyol delete invoice - 400", f"Body: {strRespBody}")
+	elif dctResp.status_code == 401:
+		add_step("Step 4: Delete from Trendyol", "error", "Authentication failed (401)")
+		dctResult.op_message = "Authentication failed — check API Key / Secret"
+	elif dctResp.status_code == 403:
+		add_step("Step 4: Delete from Trendyol", "error", "Blocked (403) — check User-Agent or rate limit")
+		dctResult.op_message = "Blocked by Trendyol (403)"
+	elif dctResp.status_code == 429:
+		add_step("Step 4: Delete from Trendyol", "error", "Rate limited (429)")
+		dctResult.op_message = "Rate limited by Trendyol (429)"
+	else:
+		add_step("Step 4: Delete from Trendyol", "error", f"HTTP {dctResp.status_code}: {strRespBody[:300]}")
+		dctResult.op_message = f"Unexpected response (HTTP {dctResp.status_code})"
+		frappe.log_error("Trendyol delete invoice - unexpected", f"Status: {dctResp.status_code}\nBody: {strRespBody}")
+
+	# Step 5: reset local flag on success
+	if dctResult.op_result:
+		add_step("Step 5: Local Update", "info", "Resetting invoice_sent flag...")
+		docOrder.invoice_sent = 0
+		docOrder.invoice_processed_at = None
+		docOrder.save(ignore_permissions=True)
+		add_step("Step 5: Local Update", "success", "invoice_sent reset to 0")
+	else:
+		add_step("Step 5: Local Update", "error", "Local flag NOT reset because delete failed")
+
+	# Step 6: comment on Trendyol Order
+	add_step("Step 6: Comment", "info", "Writing comment to Trendyol Order...")
+	strCommentText = _build_invoice_comment(dctResult, f"Trendyol Invoice Delete — Order #{docOrder.order_number}")
+	try:
+		docOrder.add_comment(
+			"Comment",
+			text=strCommentText,
+			comment_email=frappe.session.user,
+			comment_by=frappe.session.user,
+		)
+		add_step("Step 6: Comment", "success", "Comment added to Trendyol Order")
+	except Exception:
+		add_step("Step 6: Comment", "error", f"Comment failed: {frappe.get_traceback()}")
+		frappe.log_error("Trendyol delete invoice - comment failed", frappe.get_traceback())
+
+	return dctResult
+
+
+@frappe.whitelist()
+def bulk_delete_invoice_from_trendyol(order_names):
+	"""Delete invoice PDFs from Trendyol for multiple Trendyol Orders.
+
+	Called from the Trendyol Order list view's \"Delete Sales Invoice PDF from
+	Trendyol\" action. Requires a list of Trendyol Order document names. For
+	each order, the single-order ``delete_trendyol_invoice`` is called, which
+	handles the API call, local flag reset, and comment. Returns a summary
+	frappe._dict with per-order status counts.
+	"""
+	import time
+
+	if not order_names or (isinstance(order_names, list) and len(order_names) == 0):
+		return frappe._dict({"op_result": False, "op_message": "No orders selected."})
+
+	if not isinstance(order_names, list):
+		order_names = [order_names]
+
+	dSuccess = 0
+	dFailed = 0
+	dSkipped = 0
+	lstFailedOrders = []
+
+	for strName in order_names:
+		if not frappe.db.exists("Trendyol Order", strName):
+			dSkipped += 1
+			continue
+
+		docOrder = frappe.get_doc("Trendyol Order", strName)
+		if not docOrder.shipment_package_id:
+			frappe.get_doc("Trendyol Order", strName).add_comment(
+				"Comment",
+				text="Trendyol Invoice Delete — skipped: shipment_package_id is empty.",
+				comment_email=frappe.session.user,
+				comment_by=frappe.session.user,
+			)
+			dSkipped += 1
+			continue
+
+		if docOrder.invoice_sent == 0:
+			dctResult = frappe._dict({"op_result": True, "op_message": "Already absent — no local flag to reset.", "steps": []})
+			strCommentText = _build_invoice_comment(dctResult, f"Trendyol Invoice Delete — Order #{docOrder.order_number}")
+			try:
+				docOrder.add_comment("Comment", text=strCommentText, comment_email=frappe.session.user, comment_by=frappe.session.user)
+			except Exception:
+				pass
+			dSkipped += 1
+			continue
+
+		dctResult = delete_trendyol_invoice(strName)
+		if dctResult.op_result:
+			dSuccess += 1
+		else:
+			dFailed += 1
+			lstFailedOrders.append(f"{(docOrder.order_number or '<no number>')}: {dctResult.op_message}")
+
+		time.sleep(0.25)
+
+	# Build summary
+	lstParts = []
+	if dSuccess:
+		lstParts.append(f"{dSuccess} deleted")
+	if dFailed:
+		lstParts.append(f"{dFailed} failed")
+	if dSkipped:
+		lstParts.append(f"{dSkipped} skipped")
+
+	strMessage = ", ".join(lstParts)
+	blnResult = dFailed == 0
+
+	if blnResult:
+		strMessage = f"Invoice delete complete: {strMessage}."
+	else:
+		strMessage = f"Invoice delete finished: {strMessage}."
+
+	if lstFailedOrders:
+		strMessage += f" Failures: {'; '.join(lstFailedOrders[:5])}"
+		if len(lstFailedOrders) > 5:
+			strMessage += f" (plus {len(lstFailedOrders) - 5} more)"
+
+	return frappe._dict({"op_result": blnResult, "op_message": strMessage})
+
