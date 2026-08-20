@@ -970,7 +970,8 @@ def _send_invoice_pdf_to_trendyol(docOrder, docSettings, strFilePrefix=None, dct
 		add_step("Step 1: Shipment Package ID", "success", f"shipment_package_id: {docOrder.shipment_package_id}")
 
 	# Step 2: Settings credentials
-	add_step("Step 2: Settings", "info", "Loading Trendyol credentials...")
+	if blnProceed:
+		add_step("Step 2: Settings", "info", "Loading Trendyol credentials...")
 	strApiKey = docSettings.get_password("api_key")
 	strApiSecret = docSettings.get_password("api_secret")
 	if blnProceed and (not strApiKey or not strApiSecret):
@@ -981,7 +982,8 @@ def _send_invoice_pdf_to_trendyol(docOrder, docSettings, strFilePrefix=None, dct
 		add_step("Step 2: Settings", "success", f"Supplier ID: {docSettings.supplier_id}")
 
 	# Step 3: submitted Sales Invoice (linked via Sales Invoice Item child table)
-	add_step("Step 3: Sales Invoice", "info", "Searching for submitted Sales Invoice linked to this SO...")
+	if blnProceed:
+		add_step("Step 3: Sales Invoice", "info", "Searching for submitted Sales Invoice linked to this SO...")
 	strSIName = None
 	if blnProceed:
 		lstSIRows = frappe.get_all(
@@ -1002,7 +1004,8 @@ def _send_invoice_pdf_to_trendyol(docOrder, docSettings, strFilePrefix=None, dct
 		add_step("Step 3: Sales Invoice", "success", f"Found: {strSIName}")
 
 	# Step 4: PDF attachment
-	add_step("Step 4: PDF Attachment", "info", "Searching for attached e-invoice PDF...")
+	if blnProceed:
+		add_step("Step 4: PDF Attachment", "info", "Searching for attached e-invoice PDF...")
 	strFileName = None
 	lstPDFFiles = []
 	if blnProceed:
@@ -1421,83 +1424,175 @@ def delete_trendyol_invoice(strTrendyolOrderName):
 
 @frappe.whitelist()
 def bulk_delete_invoice_from_trendyol(order_names):
-	"""Delete invoice PDFs from Trendyol for multiple Trendyol Orders.
+    """Delete invoice PDFs from Trendyol for multiple Trendyol Orders.
 
-	Called from the Trendyol Order list view's \"Delete Sales Invoice PDF from
-	Trendyol\" action. Requires a list of Trendyol Order document names. For
-	each order, the single-order ``delete_trendyol_invoice`` is called, which
-	handles the API call, local flag reset, and comment. Returns a summary
-	frappe._dict with per-order status counts.
-	"""
-	import time
+    Enqueues a background job so the UI stays responsive and comments
+    persist without frappe.db.commit().
+    """
+    if not order_names or (isinstance(order_names, list) and len(order_names) == 0):
+        return frappe._dict({"op_result": False, "op_message": "No orders selected."})
 
-	if not order_names or (isinstance(order_names, list) and len(order_names) == 0):
-		return frappe._dict({"op_result": False, "op_message": "No orders selected."})
+    if not isinstance(order_names, list):
+        order_names = [order_names]
 
-	if not isinstance(order_names, list):
-		order_names = [order_names]
+    frappe.enqueue(
+        method=process_bulk_delete_invoice,
+        queue='long',
+        timeout=3600,
+        order_names=order_names,
+        user=frappe.session.user,
+    )
 
-	dSuccess = 0
-	dFailed = 0
-	dSkipped = 0
-	lstFailedOrders = []
+    return frappe._dict({"op_result": True, "op_message": "Invoice delete started in background..."})
 
-	for strName in order_names:
-		if not frappe.db.exists("Trendyol Order", strName):
-			dSkipped += 1
-			continue
 
-		docOrder = frappe.get_doc("Trendyol Order", strName)
-		if not docOrder.shipment_package_id:
-			frappe.get_doc("Trendyol Order", strName).add_comment(
-				"Comment",
-				text="Trendyol Invoice Delete — skipped: shipment_package_id is empty.",
-				comment_email=frappe.session.user,
-				comment_by=frappe.session.user,
-			)
-			dSkipped += 1
-			continue
+def process_bulk_delete_invoice(order_names, user):
+    """Background job: delete invoice PDFs for multiple Trendyol Orders."""
+    dSuccess = 0
+    dFailed = 0
+    dSkipped = 0
+    lstFailedOrders = []
+    total = len(order_names)
 
-		if docOrder.invoice_sent == 0:
-			dctResult = frappe._dict({"op_result": True, "op_message": "Already absent — no local flag to reset.", "steps": []})
-			strCommentText = _build_invoice_comment(dctResult, f"Trendyol Invoice Delete — Order #{docOrder.order_number}")
-			try:
-				docOrder.add_comment("Comment", text=strCommentText, comment_email=frappe.session.user, comment_by=frappe.session.user)
-			except Exception:
-				pass
-			dSkipped += 1
-			continue
+    for i, strName in enumerate(order_names):
+        if not frappe.db.exists("Trendyol Order", strName):
+            dSkipped += 1
+            continue
 
-		dctResult = delete_trendyol_invoice(strName)
-		if dctResult.op_result:
-			dSuccess += 1
-		else:
-			dFailed += 1
-			lstFailedOrders.append(f"{(docOrder.order_number or '<no number>')}: {dctResult.op_message}")
+        docOrder = frappe.get_doc("Trendyol Order", strName)
 
-		time.sleep(0.25)
+        if not docOrder.shipment_package_id:
+            try:
+                docOrder.add_comment(
+                    "Comment",
+                    text="Trendyol Invoice Delete — skipped: shipment_package_id is empty.",
+                    comment_email=frappe.session.user,
+                    comment_by=frappe.session.user,
+                )
+            except Exception:
+                frappe.log_error("Trendyol bulk delete — comment failed", frappe.get_traceback())
+            dSkipped += 1
+            continue
 
-	# Build summary
-	lstParts = []
-	if dSuccess:
-		lstParts.append(f"{dSuccess} deleted")
-	if dFailed:
-		lstParts.append(f"{dFailed} failed")
-	if dSkipped:
-		lstParts.append(f"{dSkipped} skipped")
+        if docOrder.invoice_sent == 0:
+            dctResult = frappe._dict({"op_result": True, "op_message": "Already absent — no local flag to reset.", "steps": []})
+            strCommentText = _build_invoice_comment(dctResult, f"Trendyol Invoice Delete — Order #{docOrder.order_number}")
+            try:
+                docOrder.add_comment("Comment", text=strCommentText, comment_email=frappe.session.user, comment_by=frappe.session.user)
+            except Exception:
+                frappe.log_error("Trendyol bulk delete — comment failed", frappe.get_traceback())
+            dSkipped += 1
+            continue
 
-	strMessage = ", ".join(lstParts)
-	blnResult = dFailed == 0
+        try:
+            dctResult = delete_trendyol_invoice(strName)
+            if dctResult.op_result:
+                dSuccess += 1
+            else:
+                dFailed += 1
+                lstFailedOrders.append(f"{(docOrder.order_number or '<no number>')}: {dctResult.op_message}")
+        except Exception as e:
+            dFailed += 1
+            lstFailedOrders.append(f"{(docOrder.order_number or '<no number>')}: {str(e)}")
+            frappe.log_error("Trendyol bulk delete — order failed", frappe.get_traceback())
 
-	if blnResult:
-		strMessage = f"Invoice delete complete: {strMessage}."
-	else:
-		strMessage = f"Invoice delete finished: {strMessage}."
+        if i % 10 == 0:
+            frappe.publish_realtime("trendyol_invoice_progress", {"current": i, "total": total}, user=user)
 
-	if lstFailedOrders:
-		strMessage += f" Failures: {'; '.join(lstFailedOrders[:5])}"
-		if len(lstFailedOrders) > 5:
-			strMessage += f" (plus {len(lstFailedOrders) - 5} more)"
+    frappe.publish_realtime("trendyol_invoice_done", {
+        "success": dSuccess,
+        "failed": dFailed,
+        "skipped": dSkipped,
+        "errors": lstFailedOrders,
+    }, user=user)
 
-	return frappe._dict({"op_result": blnResult, "op_message": strMessage})
+
+@frappe.whitelist()
+def bulk_send_invoice_to_trendyol(order_names):
+    """Send invoice PDFs to Trendyol for multiple Trendyol Orders.
+
+    Enqueues a background job so the UI stays responsive and comments
+    persist without frappe.db.commit().
+    """
+    if not order_names or (isinstance(order_names, list) and len(order_names) == 0):
+        return frappe._dict({"op_result": False, "op_message": "No orders selected."})
+
+    if not isinstance(order_names, list):
+        order_names = [order_names]
+
+    frappe.enqueue(
+        method=process_bulk_send_invoice,
+        queue='long',
+        timeout=3600,
+        order_names=order_names,
+        user=frappe.session.user,
+    )
+
+    return frappe._dict({"op_result": True, "op_message": "Invoice upload started in background..."})
+
+
+def process_bulk_send_invoice(order_names, user):
+    """Background job: send invoice PDFs for multiple Trendyol Orders."""
+    dSuccess = 0
+    dFailed = 0
+    dSkipped = 0
+    lstFailedOrders = []
+    total = len(order_names)
+
+    for i, strName in enumerate(order_names):
+        if not frappe.db.exists("Trendyol Order", strName):
+            dSkipped += 1
+            continue
+
+        docOrder = frappe.get_doc("Trendyol Order", strName)
+
+        if not docOrder.sales_order:
+            try:
+                docOrder.add_comment(
+                    "Comment",
+                    text="Trendyol Invoice Upload — skipped: no Sales Order linked.",
+                    comment_email=frappe.session.user,
+                    comment_by=frappe.session.user,
+                )
+            except Exception:
+                frappe.log_error("Trendyol bulk upload — comment failed", frappe.get_traceback())
+            dSkipped += 1
+            continue
+
+        if docOrder.invoice_sent:
+            dctResult = frappe._dict({
+                "op_result": True,
+                "op_message": "Invoice already sent — skipping.",
+                "steps": [],
+                "already_uploaded": True,
+            })
+            strCommentText = _build_invoice_comment(dctResult, f"Trendyol Invoice Upload — Order #{docOrder.order_number}")
+            try:
+                docOrder.add_comment("Comment", text=strCommentText, comment_email=frappe.session.user, comment_by=frappe.session.user)
+            except Exception:
+                frappe.log_error("Trendyol bulk upload — comment failed", frappe.get_traceback())
+            dSkipped += 1
+            continue
+
+        try:
+            dctResult = test_send_invoice_pdf_by_trendyol_order(strName)
+            if dctResult.op_result or getattr(dctResult, "already_uploaded", False):
+                dSuccess += 1
+            else:
+                dFailed += 1
+                lstFailedOrders.append(f"{(docOrder.order_number or '<no number>')}: {dctResult.op_message}")
+        except Exception as e:
+            dFailed += 1
+            lstFailedOrders.append(f"{(docOrder.order_number or '<no number>')}: {str(e)}")
+            frappe.log_error("Trendyol bulk upload — order failed", frappe.get_traceback())
+
+        if i % 10 == 0:
+            frappe.publish_realtime("trendyol_invoice_progress", {"current": i, "total": total}, user=user)
+
+    frappe.publish_realtime("trendyol_invoice_done", {
+        "success": dSuccess,
+        "failed": dFailed,
+        "skipped": dSkipped,
+        "errors": lstFailedOrders,
+    }, user=user)
 
