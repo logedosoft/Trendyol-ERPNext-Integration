@@ -30,7 +30,8 @@
   "default_item_group",
   "tbtests_tab",
   "test_pdf_sales_order",
-  "test_pdf_trendyol_order"
+  "test_pdf_trendyol_order",
+  "delete_invoice_pdf_in_trendyol"
  ],
  "fields": [
   {
@@ -181,12 +182,18 @@
    "fieldtype": "Link",
    "label": "Send Invoice PDF to Trendyol via Trendyol Order",
    "options": "Trendyol Order"
+  },
+  {
+   "fieldname": "delete_invoice_pdf_in_trendyol",
+   "fieldtype": "Link",
+   "label": "DELETE Invoice PDF in Trendyol",
+   "options": "Trendyol Order"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-12 13:06:28.996448",
+ "modified": "2026-08-14 12:31:40.138483",
  "modified_by": "Administrator",
  "module": "Trendyol ERPNext Integration",
  "name": "Trendyol Settings",
